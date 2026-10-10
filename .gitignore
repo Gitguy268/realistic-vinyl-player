@@ -1,5 +1,13 @@
 .DS_Store
 node_modules/
+test/out/
+_site/
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+*.swp
 test-results/
 playwright-report/
 .verify/

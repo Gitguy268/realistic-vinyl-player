@@ -98,4 +98,14 @@ There is nothing to build. Two URL switches help with testing:
 - `?selftest` checks the arm geometry and the track-to-groove mapping and logs `selftest ok`.
 - `?debug` exposes the deck state as `window.__deck`.
 
+The checks in `test/` drive the page in Chromium, Firefox and WebKit with Playwright. Playwright is a development dependency of the tests only.
+
+```
+cd test
+npm ci && npx playwright install
+npm test              # behaviour, in all three browsers
+npm run test:audio    # pitch, glide and click measurements (prints a report)
+ORIGINAL=/path/to/Vinyl-Player/index.html npm run parity   # layout against the original
+```
+
 All tunable physical constants (record dimensions, spin-up and coast times, wow and flutter amounts, noise levels, arm timings) are in one block at the top of the script in `index.html`.
