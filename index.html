@@ -1722,6 +1722,7 @@
       all() {
         Geo.update();
         Program.build();
+        Wear.build();
         Render.disc();
         Render.label();
         State.lastArmKey = '';
@@ -1881,11 +1882,65 @@
       }
     };
 
-    // ─── WEAR: record condition (defect map arrives with the imperfections phase) ──
+    // ─── WEAR: a defect map seeded per record, so the same scratches recur ──
     const Wear = {
-      build() {},
-      send() {},
-      draw() {}
+      defects: [],   // scratches that tick: { a, m, s, r0, r1, amp, f, tau, pan, low }
+      marks: [],     // dust and scuffs: seen, not heard
+
+      /** Angle (deg, in the record's own frame) of a scratch where it crosses radius r. Scratches are rarely radial. */
+      angleAt: (d, r) => d.a + d.s * (r - d.m),
+
+      build() {
+        const cond = C.CONDITIONS[Settings.v.condition];
+        const seed = Render.hash(State.playlist.map(t => t.id).join('|') + '#wear');
+        // Always generate the worst case and keep a prefix: a record in worse condition keeps the damage it had.
+        let rnd = Render.rng(seed);
+        Wear.defects = Array.from({ length: C.CONDITIONS.beat.scratches }, () => {
+          const m = N.IN + 0.03 + (N.OUT - N.IN - 0.06) * rnd(), span = 0.025 + 0.2 * rnd() * rnd(), loud = rnd();
+          return {
+            a: rnd() * 360, m, s: (rnd() - 0.5) * 260,             // s: degrees of slant per record radius
+            r0: Math.min(N.OUT, m + span / 2), r1: Math.max(N.IN, m - span / 2),
+            amp: 0.05 + 0.3 * loud * loud, f: 1200 + 5000 * rnd(), tau: 0.00008 + 0.0005 * rnd(),
+            pan: 0.3 + rnd() * 0.97, low: loud > 0.7 ? 60 + 40 * rnd() : 0
+          };
+        }).slice(0, cond.scratches);
+        rnd = Render.rng(seed ^ 0x9e3779b9);
+        Wear.marks = Array.from({ length: 300 }, (_, i) => ({
+          scuff: i % 12 === 0, a: rnd() * Math.PI * 2, r: C.LABEL_FRAC + 0.03 + (0.96 - C.LABEL_FRAC) * rnd(),
+          len: 0.02 + 0.16 * rnd(), tilt: (rnd() - 0.5) * 2.4, size: 0.5 + rnd() * 1.2, alpha: 0.12 + 0.4 * rnd()
+        })).slice(0, Math.round(300 * cond.wear));
+        Wear.send();
+      },
+
+      send() {
+        State.deckNode?.port.postMessage({ defects: Wear.defects });
+      },
+
+      /** Drawn in the record's rotating frame, at the same angles the audio thread ticks at. */
+      draw(g, c, R, k, ink) {
+        const px = Math.max(1, R / 160);
+        for (const m of Wear.marks) {
+          const x = c + m.r * R * Math.cos(m.a), y = c + m.r * R * Math.sin(m.a);
+          if (m.scuff) {            // paper scuff: a faint straight hairline at any angle
+            const dx = Math.cos(m.a + m.tilt) * m.len * R, dy = Math.sin(m.a + m.tilt) * m.len * R;
+            g.beginPath(); g.moveTo(x - dx / 2, y - dy / 2); g.lineTo(x + dx / 2, y + dy / 2);
+            g.strokeStyle = `rgba(${ink},${0.09 * k})`; g.lineWidth = px * 0.8; g.stroke();
+          } else {                  // dust speck
+            g.beginPath(); g.arc(x, y, m.size * px * 0.36, 0, Math.PI * 2);
+            g.fillStyle = `rgba(${ink},${m.alpha * 0.42 * k})`; g.fill();
+          }
+        }
+        for (const d of Wear.defects) {
+          g.beginPath();
+          for (let i = 0; i <= 8; i++) {
+            const r = d.r1 + (d.r0 - d.r1) * i / 8, a = Wear.angleAt(d, r) * Math.PI / 180;
+            g[i ? 'lineTo' : 'moveTo'](c + r * R * Math.cos(a), c + r * R * Math.sin(a));
+          }
+          g.lineCap = 'round';
+          g.strokeStyle = `rgba(${ink},${(0.05 + 0.2 * d.amp) * k})`; g.lineWidth = px * 2.4; g.stroke();   // bruised edge
+          g.strokeStyle = `rgba(${ink},${(0.3 + 1.2 * d.amp) * k})`; g.lineWidth = px * 0.7; g.stroke();    // the cut itself
+        }
+      }
     };
 
     // ─── AUDIO WORKLET ───────────────────────────────────────────
@@ -2086,7 +2141,7 @@
           if (g > 0.5 && this.defects.length && this.angle !== a0) {
             for (const d of this.defects) {
               if (radius > d.r0 || radius < d.r1) continue;
-              const ph = phi - d.a;
+              const ph = phi - (d.a + d.s * (radius - d.m));
               if (Math.floor((a0 - ph) / 360) !== Math.floor((this.angle - ph) / 360)) {
                 this.hit(d.amp, d.f, d.tau, d.pan);
                 if (d.low) this.hit(d.amp * 0.5, d.low, 0.01, 0.785);
@@ -3829,7 +3884,6 @@
           Engine.ensure(); Sfx.click();
           Settings.v.condition = DOM.condSel.value;
           Settings.apply(); Settings.save();
-          Wear.build();
           Render.schedule();
           Engine.updateParams();
         });
@@ -4069,7 +4123,7 @@
         });
       }
     } : null;
-    if (Debug) window.__deck = { Debug, Deck, Arm, Engine, Geo, Program, Player, Settings, State, N, C };
+    if (Debug) window.__deck = { Debug, Deck, Arm, Engine, Geo, Program, Player, Settings, State, Wear, Render, N, C };
 
     /** Asserts on the geometry and the track-to-groove mapping. */
     function selfTest() {
