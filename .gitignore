@@ -1,0 +1,12 @@
+.DS_Store
+node_modules/
+test-results/
+playwright-report/
+.verify/
+shots/
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.ogg
+*.opus

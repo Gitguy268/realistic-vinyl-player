@@ -1,0 +1,2577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Realistic Vinyl Player</title>
+  <style>
+    /* ── Base reset (stands in for the reset the original got from its CDN script) ── */
+    @layer base {
+      *, ::before, ::after { border: 0 solid; }
+      html { line-height: 1.5; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+      h3, h4 { font-size: inherit; font-weight: inherit; }
+      ol { list-style: none; }
+      img, canvas, audio { display: block; }
+      button, input, select { font: inherit; letter-spacing: inherit; color: inherit; border-radius: 0; background-color: transparent; }
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #1a1a1e;
+      --surface: #242428;
+      --surface2: #2e2e33;
+      --text: #e8e8e8;
+      --text-dim: #777;
+      --accent: #e8562a;
+      --border: rgba(255,255,255,.1);
+      --vinyl-size: min(340px, 60vmin);
+      --shadow: 0 4px 24px rgba(0,0,0,.5);
+      --transition: .3s ease;
+      --accent-h: 14;
+      --accent-s: 80%;
+      --accent-l: 54%;
+    }
+
+    /* ── Auto light mode ───────────────────────── */
+    body.light-auto {
+      --bg: #e8e5e0;
+      --surface: #f5f3ef;
+      --surface2: #eae7e2;
+      --text: #1a1a1e;
+      --text-dim: #666;
+      --border: rgba(0,0,0,.1);
+      --shadow: 0 4px 24px rgba(0,0,0,.12);
+    }
+
+    @media (prefers-color-scheme: light) {
+      body.auto-scheme:not(.has-custom-colors) {
+        --bg: #e8e5e0;
+        --surface: #f5f3ef;
+        --surface2: #eae7e2;
+        --text: #1a1a1e;
+        --text-dim: #666;
+        --border: rgba(0,0,0,.1);
+        --shadow: 0 4px 24px rgba(0,0,0,.12);
+      }
+    }
+
+    /* ── Screen-reader only ────────────────────── */
+    .sr-only {
+      position: absolute; width: 1px; height: 1px;
+      padding: 0; margin: -1px; overflow: hidden;
+      clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+    }
+
+    /* ── Focus mode ────────────────────────────── */
+    .focus { --vinyl-size: min(520px, 85vmin); }
+    .focus .files, .focus .row:not(.focus-bar), .focus .hint,
+    .focus .tracklist, .focus .about-wrap, .focus .color-row,
+    .focus .lift-arm-row { display: none !important; }
+    .focus .turntable {
+      width: calc(var(--vinyl-size) + 100px);
+      height: calc(var(--vinyl-size) + 60px);
+    }
+    .focus .focus-controls { display: flex; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      user-select: none;
+      -webkit-user-select: none;
+      transition: background var(--transition), color var(--transition);
+    }
+
+    .app {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 16px; max-width: 700px; width: 100%;
+    }
+
+    /* ── Turntable ─────────────────────────────── */
+    .turntable {
+      position: relative;
+      width: calc(var(--vinyl-size) + 90px);
+      height: calc(var(--vinyl-size) + 50px);
+      border-radius: 14px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      display: flex; align-items: center; justify-content: center;
+      transition: background var(--transition), box-shadow var(--transition),
+                  width var(--transition), height var(--transition);
+    }
+
+    @keyframes tt-bump {
+      0% { transform: scale(1); }
+      40% { transform: scale(0.985); }
+      100% { transform: scale(1); }
+    }
+    .turntable.bump { animation: tt-bump 0.25s cubic-bezier(0.3, 1.5, 0.6, 1); }
+
+    /* ── Vinyl ─────────────────────────────────── */
+    .vinyl-wrap {
+      position: relative;
+      width: var(--vinyl-size); height: var(--vinyl-size);
+      cursor: grab; margin-left: -16px; touch-action: none;
+      transition: transform .15s ease, width var(--transition), height var(--transition);
+      will-change: transform;
+    }
+    .vinyl-wrap:hover { transform: scale(1.008); }
+    .vinyl-wrap.dragging { cursor: grabbing; transform: scale(0.98); }
+
+    .vinyl {
+      width: 100%; height: 100%;
+      border-radius: 50%; position: relative;
+      will-change: transform;
+    }
+
+    .vinyl-disc {
+      position: absolute; inset: 0; border-radius: 50%;
+      background:
+        repeating-radial-gradient(circle, transparent 0, transparent 3px,
+          rgba(0,0,0,.06) 3.5px, transparent 4px),
+        radial-gradient(circle, transparent 30%, #141414 31%, #1e1e1e 60%, #141414 100%);
+      box-shadow: inset 0 0 30px rgba(0,0,0,.5), inset 0 0 80px rgba(0,0,0,.15),
+                  0 2px 10px rgba(0,0,0,.4);
+      transition: background var(--transition), box-shadow var(--transition);
+    }
+
+    .vinyl-grooves {
+      position: absolute; inset: 0; border-radius: 50%;
+      background: repeating-radial-gradient(circle, transparent 0, transparent 2.5px,
+        rgba(255,255,255,.018) 3px, transparent 3.5px);
+      pointer-events: none;
+    }
+
+    .vinyl-label {
+      position: absolute; top: 50%; left: 50%;
+      width: 36%; height: 36%;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: var(--accent);
+      overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+      z-index: 2;
+      transition: background var(--transition);
+    }
+
+    .vinyl-label .cover-img {
+      width: 100%; height: 100%; object-fit: cover;
+      border-radius: 50%; display: none;
+    }
+
+    .vinyl-label .no-cover {
+      font-size: 10px; color: rgba(255,255,255,.65); text-align: center;
+    }
+
+    .vinyl-spindle {
+      position: absolute; top: 50%; left: 50%;
+      width: 8px; height: 8px;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: #444; border: 2px solid #555; z-index: 3;
+    }
+
+    .vinyl-highlight, .vinyl-sheen, .vinyl-iridescent, .vinyl-dust {
+      position: absolute; inset: 0; border-radius: 50%;
+      pointer-events: none; z-index: 4;
+    }
+
+    .vinyl-highlight {
+      opacity: .35; mix-blend-mode: screen;
+      transition: opacity var(--transition);
+    }
+
+    .vinyl-sheen {
+      background: radial-gradient(ellipse 70% 50% at 35% 30%,
+        rgba(255,255,255,.1) 0%, transparent 60%);
+      mix-blend-mode: screen; opacity: .6;
+    }
+
+    .vinyl-iridescent {
+      background: conic-gradient(from 0deg,
+        rgba(255,80,80,.04), rgba(255,200,50,.04), rgba(80,255,80,.04),
+        rgba(50,200,255,.04), rgba(180,80,255,.04), rgba(255,80,80,.04));
+      -webkit-mask: radial-gradient(circle, transparent 48%, black 52%, black 92%, transparent 96%);
+      mask: radial-gradient(circle, transparent 48%, black 52%, black 92%, transparent 96%);
+      mix-blend-mode: screen; opacity: .7;
+    }
+
+    .vinyl-dust {
+      opacity: .08; z-index: 5;
+      background:
+        repeating-linear-gradient(37deg, transparent, transparent 5px,
+          rgba(255,255,255,.025) 5.5px, transparent 6px),
+        repeating-linear-gradient(143deg, transparent, transparent 8px,
+          rgba(255,255,255,.015) 8.5px, transparent 9px);
+    }
+
+    .vinyl-glow {
+      position: absolute; inset: -5px; border-radius: 50%;
+      pointer-events: none; z-index: 1;
+      border: 2px solid transparent;
+      transition: border-color .25s ease, box-shadow .25s ease;
+    }
+
+    .vinyl-wrap:hover .vinyl-glow {
+      border-color: hsla(var(--accent-h), var(--accent-s), var(--accent-l), .25);
+      box-shadow: 0 0 20px hsla(var(--accent-h), var(--accent-s), var(--accent-l), .1);
+    }
+
+    /* ── Bass visualizer canvas ────────────────── */
+    .bass-canvas {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none; z-index: 6;
+      border-radius: 50%;
+    }
+
+    /* ── Tonearm ───────────────────────────────── */
+    .tonearm {
+      position: absolute; right: 16px; top: -8px;
+      width: 50px; height: calc(var(--vinyl-size) * 0.55);
+      z-index: 10; cursor: grab;
+      transform-origin: top center;
+      transition: height var(--transition);
+      touch-action: none;
+      will-change: transform;
+    }
+    .tonearm.smooth {
+      transition: transform .6s cubic-bezier(0.34, 1.3, 0.64, 1), height var(--transition);
+    }
+    .tonearm.off { transform: rotate(-8deg); }
+    .tonearm.arm-dragging { cursor: grabbing; transition: height var(--transition); }
+
+    .tonearm-base {
+      position: absolute; top: 0; left: 50%;
+      transform: translateX(-50%);
+      width: 24px; height: 24px; border-radius: 50%;
+      background: radial-gradient(circle, #666 30%, #444);
+      box-shadow: 0 2px 6px rgba(0,0,0,.4);
+    }
+    .tonearm-bar {
+      position: absolute; top: 12px; left: 50%;
+      transform: translateX(-50%);
+      width: 4px; height: calc(100% - 24px);
+      background: linear-gradient(90deg, #777, #aaa 40%, #888);
+      border-radius: 2px;
+    }
+    .tonearm-head {
+      position: absolute; bottom: -3px; left: 50%;
+      transform: translateX(-50%) rotate(-10deg);
+      width: 12px; height: 18px;
+      background: linear-gradient(180deg, #999, #666);
+      border-radius: 2px 2px 1px 1px;
+    }
+    .tonearm-head::after {
+      content: ''; position: absolute; bottom: -3px; left: 50%;
+      transform: translateX(-50%);
+      width: 3px; height: 5px;
+      background: #ccc; border-radius: 0 0 1px 1px;
+    }
+
+    /* ── Theme: Wood ───────────────────────────── */
+    .theme-wood .turntable {
+      background: repeating-linear-gradient(92deg, #5a3e28 0, #6b4c33 3px,
+        #5a3e28 5px, #4d3320 8px, #5e422c 11px);
+    }
+    .theme-wood .vinyl-disc {
+      background:
+        repeating-radial-gradient(circle, transparent 0, transparent 3px,
+          rgba(0,0,0,.09) 3.5px, transparent 4px),
+        radial-gradient(circle, transparent 30%, #0d0d0d 31%, #181818 60%, #0d0d0d 100%);
+    }
+
+    /* ── Theme: Clear (Liquid Glass Edition) ───── */
+    .theme-clear .turntable {
+      background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.01));
+      box-shadow:
+        0 16px 40px rgba(0,0,0,0.3),
+        inset 0 1px 1px rgba(255,255,255,0.3),
+        inset 0 -1px 2px rgba(0,0,0,0.2),
+        inset 1px 0 1px rgba(255,255,255,0.1);
+      backdrop-filter: blur(40px) saturate(150%);
+      -webkit-backdrop-filter: blur(40px) saturate(150%);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 24px;
+    }
+    .theme-clear .vinyl-disc {
+      background:
+        radial-gradient(circle, transparent 27%, rgba(255,255,255,0.15) 29.5%, rgba(255,255,255,0.08) 32%, rgba(255,255,255,0.02) 36%, transparent 42%),
+        radial-gradient(circle, transparent 40%, rgba(255,255,255,0.03) 55%, rgba(255,255,255,0.05) 65%, rgba(255,255,255,0.01) 78%, transparent 88%),
+        linear-gradient(135deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.02) 40%, rgba(0,0,0,0.1) 100%);
+      box-shadow:
+        inset 0 0 0 1px rgba(255,255,255,0.2),
+        inset 0 4px 15px rgba(255,255,255,0.4),
+        inset 0 -4px 15px rgba(0,0,0,0.2),
+        0 12px 40px rgba(0,0,0,0.25);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: none;
+    }
+    .theme-clear .vinyl-disc::before {
+      content: ''; position: absolute; inset: 0; border-radius: 50%;
+      background: conic-gradient(from 25deg, transparent 0deg, rgba(255,255,255,0.035) 12deg, rgba(255,255,255,0.1) 32deg, rgba(255,255,255,0.035) 52deg, transparent 72deg, transparent 155deg, rgba(255,255,255,0.015) 170deg, rgba(255,255,255,0.055) 190deg, rgba(255,255,255,0.015) 210deg, transparent 230deg, transparent 360deg);
+      -webkit-mask: radial-gradient(circle, transparent 29%, black 34%, black 92%, transparent 97%);
+      mask: radial-gradient(circle, transparent 29%, black 34%, black 92%, transparent 97%);
+      pointer-events: none; z-index: 1; opacity: 0.85;
+    }
+    .theme-clear .vinyl-disc::after {
+      content: ''; position: absolute; inset: 0; border-radius: 50%;
+      background:
+        radial-gradient(circle, transparent 84%, hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.06) 89%, hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.12) 94%, hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.04) 100%),
+        conic-gradient(from 0deg, hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.04), transparent 60deg, hsla(calc(var(--accent-h) + 40), var(--accent-s), var(--accent-l), 0.03) 120deg, transparent 180deg, hsla(calc(var(--accent-h) - 40), var(--accent-s), var(--accent-l), 0.04) 240deg, transparent 300deg, hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.04) 360deg);
+      -webkit-mask: radial-gradient(circle, transparent 82%, black 87%, black 100%);
+      mask: radial-gradient(circle, transparent 82%, black 87%, black 100%);
+      pointer-events: none; z-index: 2;
+    }
+    .theme-clear .vinyl-grooves {
+      background: repeating-radial-gradient(circle, transparent 0, transparent 3.2px, rgba(255,255,255,0.006) 3.5px, transparent 3.8px);
+      opacity: 0.3;
+      -webkit-mask: radial-gradient(circle, transparent 30%, black 34%, black 91%, transparent 96%);
+      mask: radial-gradient(circle, transparent 30%, black 34%, black 91%, transparent 96%);
+    }
+    .theme-clear .vinyl-highlight { opacity: 0.5; mix-blend-mode: overlay; z-index: 6; }
+    .theme-clear .vinyl-sheen {
+      background:
+        radial-gradient(ellipse 50% 40% at 30% 20%, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.08) 45%, transparent 70%),
+        radial-gradient(ellipse 25% 20% at 75% 75%, rgba(255,255,255,0.1) 0%, transparent 65%);
+      mix-blend-mode: screen; opacity: 1; z-index: 7;
+    }
+    .theme-clear .vinyl-iridescent {
+      background: conic-gradient(from 90deg, rgba(255,120,120,0.02), rgba(255,230,100,0.02), rgba(120,255,150,0.02), rgba(100,210,255,0.03), rgba(210,130,255,0.02), rgba(255,120,120,0.02));
+      -webkit-mask: radial-gradient(circle, transparent 42%, black 48%, black 88%, transparent 94%);
+      mask: radial-gradient(circle, transparent 42%, black 48%, black 88%, transparent 94%);
+      mix-blend-mode: screen; opacity: 0.45;
+    }
+    .theme-clear .vinyl-dust { opacity: 0; }
+    .theme-clear .vinyl-glow {
+      inset: -12px; border: 1px solid rgba(255,255,255,0.1);
+      box-shadow: 0 0 50px rgba(255,255,255,0.05), inset 0 0 20px rgba(255,255,255,0.05);
+      transition: all .5s ease;
+    }
+    .theme-clear .vinyl-wrap:hover .vinyl-glow {
+      border-color: rgba(255,255,255,0.25);
+      box-shadow: 0 0 40px hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.15),
+                  0 0 80px hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.05),
+                  inset 0 0 30px rgba(255,255,255,0.1);
+    }
+    .theme-clear .vinyl-wrap::after {
+      content: ''; position: absolute; inset: 3%; border-radius: 50%;
+      background: radial-gradient(ellipse 42% 32% at 34% 26%, rgba(255,255,255,0.11) 0%, rgba(255,255,255,0.03) 50%, transparent 72%);
+      pointer-events: none; z-index: 12; mix-blend-mode: overlay; opacity: 0.65;
+      transition: opacity .3s ease;
+    }
+    .theme-clear .vinyl-wrap:hover::after { opacity: 0.85; }
+    .theme-clear .vinyl-label {
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.14), inset 0 1.5px 4px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.06), 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .theme-clear .vinyl-spindle {
+      background: radial-gradient(circle at 35% 35%, #c0c0c0, #707070);
+      border-color: rgba(255,255,255,0.3); box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    }
+    .theme-clear .tonearm-base {
+      background: radial-gradient(circle at 40% 35%, rgba(255,255,255,0.8), rgba(255,255,255,0.2));
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2), inset 0 1px 2px rgba(255,255,255,0.5);
+      backdrop-filter: blur(10px);
+    }
+    .theme-clear .tonearm-bar { background: linear-gradient(90deg, rgba(255,255,255,0.5), rgba(255,255,255,0.9) 45%, rgba(255,255,255,0.4)); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .theme-clear .tonearm-head { background: linear-gradient(180deg, rgba(255,255,255,0.8), rgba(255,255,255,0.3)); backdrop-filter: blur(10px); box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
+
+    /* ── Controls ──────────────────────────────── */
+    .row {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      align-items: center; justify-content: center; width: 100%;
+    }
+
+    button, select, .about-toggle {
+      font-family: inherit; font-size: 12px;
+      padding: 6px 12px;
+      border: 1px solid var(--border); border-radius: 6px;
+      background: var(--surface); color: var(--text);
+      cursor: pointer;
+      transition: background var(--transition), border-color var(--transition),
+                  color var(--transition), transform 0.1s ease;
+    }
+    button:hover, select:hover, .about-toggle:hover { border-color: var(--accent); }
+    button:disabled { opacity: .35; cursor: not-allowed; }
+    button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button:active, select:active, .about-toggle:active { transform: scale(0.95); }
+    button:focus-visible, select:focus-visible, input:focus-visible {
+      outline: 2px solid var(--accent); outline-offset: 2px;
+    }
+
+    .group {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 11px; color: var(--text-dim);
+    }
+
+    @keyframes eq-pulse {
+      0% { transform: scale(1); color: var(--text-dim); }
+      50% { transform: scale(1.15); color: var(--accent); }
+      100% { transform: scale(1); color: var(--text-dim); }
+    }
+    .eq-flash { animation: eq-pulse .3s ease; }
+
+    input[type="range"] {
+      -webkit-appearance: none; appearance: none;
+      width: 64px; height: 4px; border-radius: 2px;
+      background: var(--border); outline: none; cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 12px; height: 12px;
+      border-radius: 50%; background: var(--accent);
+      transition: transform 0.1s ease;
+    }
+    input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.2); }
+    input[type="range"]::-moz-range-thumb {
+      width: 12px; height: 12px; border: none;
+      border-radius: 50%; background: var(--accent);
+      transition: transform 0.1s ease;
+    }
+    input[type="range"]::-moz-range-thumb:active { transform: scale(1.2); }
+
+    input[type="color"] {
+      -webkit-appearance: none; appearance: none;
+      width: 28px; height: 28px;
+      border: 2px solid var(--border); border-radius: 6px;
+      cursor: pointer; background: none; padding: 0; overflow: hidden;
+    }
+    input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+    input[type="color"]::-webkit-color-swatch { border: none; border-radius: 4px; }
+    input[type="color"]::-moz-color-swatch { border: none; border-radius: 4px; }
+
+    .hex-input {
+      font-family: monospace; font-size: 11px;
+      width: 68px; padding: 4px 6px;
+      border: 1px solid var(--border); border-radius: 5px;
+      background: var(--surface); color: var(--text);
+      text-align: center; outline: none;
+      transition: border-color var(--transition), background var(--transition), color var(--transition);
+    }
+    .hex-input:focus { border-color: var(--accent); }
+
+    label {
+      cursor: pointer; display: flex; align-items: center; gap: 4px;
+      transition: transform 0.1s ease;
+    }
+    label:active { transform: scale(0.96); }
+    input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
+
+    .files {
+      display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+    }
+    .files label {
+      font-size: 11px; padding: 5px 12px; border-radius: 6px;
+      background: var(--surface); border: 1px dashed var(--border);
+      color: var(--text-dim); cursor: pointer;
+      transition: background var(--transition), border-color var(--transition),
+                  color var(--transition), transform 0.1s ease;
+    }
+    .files label:hover { border-color: var(--accent); }
+    .files input[type="file"] { display: none; }
+
+    .hint {
+      font-size: 10px; color: var(--text-dim); text-align: center;
+      min-height: 14px; transition: color var(--transition);
+    }
+
+    /* ── Tracklist ─────────────────────────────── */
+    .tracklist {
+      width: 100%; background: var(--surface);
+      border-radius: 10px; padding: 12px 16px;
+      box-shadow: var(--shadow);
+      transition: background var(--transition), box-shadow var(--transition);
+      max-height: 260px; overflow-y: auto;
+    }
+    .tracklist::-webkit-scrollbar { width: 4px; }
+    .tracklist::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .tracklist h3 {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 1.5px; color: var(--text-dim); margin-bottom: 8px;
+    }
+    .tracklist ol { list-style: none; counter-reset: track; }
+    .tracklist li {
+      counter-increment: track;
+      display: flex; align-items: center;
+      padding: 7px 8px; border-radius: 6px;
+      font-size: 12px; cursor: pointer;
+      transition: background .15s ease, transform 0.1s ease;
+      gap: 10px;
+    }
+    .tracklist li:active { transform: scale(0.98); }
+    .tracklist li:hover { background: var(--surface2); }
+    .tracklist li.active { background: var(--accent); color: #fff; }
+    .tracklist li.active .trk-dur { color: rgba(255,255,255,.7); }
+    .tracklist li::before {
+      content: counter(track, decimal-leading-zero);
+      font-size: 10px; color: var(--text-dim); min-width: 18px;
+    }
+    .tracklist li.active::before { color: rgba(255,255,255,.6); }
+    .trk-title {
+      flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .trk-artist {
+      font-size: 10px; color: var(--text-dim); white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; max-width: 100px;
+    }
+    .tracklist li.active .trk-artist { color: rgba(255,255,255,.6); }
+    .trk-dur {
+      font-size: 10px; color: var(--text-dim);
+      font-variant-numeric: tabular-nums; flex-shrink: 0;
+    }
+    .trk-rm {
+      font-size: 10px; color: var(--text-dim);
+      background: none; border: none; padding: 2px 5px;
+      cursor: pointer; opacity: 0;
+      transition: opacity .15s, transform 0.1s ease;
+      flex-shrink: 0; line-height: 1;
+    }
+    .tracklist li:hover .trk-rm { opacity: .7; }
+    .trk-rm:hover { opacity: 1 !important; color: var(--accent); }
+    .tracklist li.active .trk-rm { color: rgba(255,255,255,.6); }
+    .tracklist-empty {
+      font-size: 11px; color: var(--text-dim); text-align: center;
+      padding: 10px 0; font-style: italic;
+    }
+
+    /* ── Color row ─────────────────────────────── */
+    .color-row {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      align-items: center; justify-content: center; width: 100%;
+    }
+    .color-group {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; color: var(--text-dim);
+    }
+    .color-group .swatch-label { min-width: 24px; text-align: right; }
+
+    /* ── About / Record Info ───────────────────── */
+    .about-wrap { width: 100%; }
+    .about-toggle {
+      width: 100%; border-radius: 10px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .about-toggle .arrow { transition: transform var(--transition); font-size: 10px; }
+    .about-wrap.open .about-toggle .arrow { transform: rotate(180deg); }
+    .about-body {
+      max-height: 0; overflow: hidden;
+      transition: max-height .4s ease, padding .3s ease;
+      background: var(--surface); border-radius: 0 0 10px 10px;
+      padding: 0 16px; font-size: 12px; line-height: 1.6; color: var(--text-dim);
+    }
+    .about-wrap.open .about-body {
+      max-height: 800px; padding: 16px; overflow-y: auto;
+    }
+    .info-panels { display: flex; flex-direction: column; gap: 16px; }
+    .info-card {
+      background: var(--surface2); border-radius: 8px;
+      padding: 12px 16px; border: 1px solid var(--border);
+      box-shadow: 0 2px 8px rgba(0,0,0,.05);
+    }
+    .info-card h4 {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+      color: var(--text); margin-bottom: 10px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .info-card h4::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    .sleeve-line {
+      display: flex; gap: 8px; padding: 3px 0;
+      border-bottom: 1px dashed rgba(255,255,255,.03);
+    }
+    .sleeve-line:last-of-type { border-bottom: none; }
+    .sleeve-label {
+      text-transform: uppercase; font-size: 9px; letter-spacing: 1px;
+      color: var(--text-dim); min-width: 65px; flex-shrink: 0; padding-top: 2px;
+    }
+    .sleeve-val { color: var(--text); flex: 1; word-break: break-word; }
+    .sleeve-notes {
+      margin-top: 10px; font-style: italic; color: var(--text-dim);
+      font-size: 11px; line-height: 1.5; outline: none;
+      border-radius: 4px; padding: 4px;
+      transition: background .2s, color .2s;
+    }
+    .sleeve-notes:focus, .sleeve-val:focus {
+      background: rgba(255,255,255,.05); color: var(--text);
+      outline: 1px solid var(--accent);
+    }
+    .editable { cursor: text; border-bottom: 1px dotted transparent; transition: border-color .2s; }
+    .editable:hover { border-bottom-color: var(--border); }
+
+    /* ── Focus bar ─────────────────────────────── */
+    .focus-bar {
+      display: flex; gap: 10px; align-items: center;
+      justify-content: center; width: 100%;
+    }
+
+    /* ── Focus mode floating controls (Liquid Glass Edition) ──────────── */
+    .focus-controls {
+      display: none;
+      position: fixed; bottom: 32px; left: 50%;
+      transform: translateX(-50%);
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.02));
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-top: 1px solid rgba(255, 255, 255, 0.3);
+      border-left: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 50px;
+      padding: 12px 28px;
+      gap: 16px; align-items: center;
+      box-shadow:
+        0 12px 40px rgba(0,0,0,0.35),
+        inset 0 1px 2px rgba(255,255,255,0.2),
+        inset 0 -1px 2px rgba(0,0,0,0.1);
+      z-index: 50;
+      backdrop-filter: blur(32px) saturate(200%);
+      -webkit-backdrop-filter: blur(32px) saturate(200%);
+    }
+
+    .fc-btn {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid transparent;
+      color: #fff;
+      font-size: 15px; padding: 8px 12px; cursor: pointer;
+      border-radius: 50%; transition: all .2s cubic-bezier(0.25, 1, 0.5, 1);
+      box-shadow: inset 0 1px 1px rgba(255,255,255,0.1);
+    }
+    .fc-btn:hover {
+      background: rgba(255,255,255,0.15);
+      border-color: rgba(255,255,255,0.2);
+      transform: scale(1.05);
+      box-shadow: inset 0 2px 4px rgba(255,255,255,0.3), 0 4px 12px rgba(0,0,0,0.2);
+    }
+    .fc-btn.fc-play {
+      font-size: 20px; width: 44px; height: 44px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .fc-btn.fc-play.on { color: var(--accent); text-shadow: 0 0 10px var(--accent); }
+
+    .fc-time {
+      font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.85);
+      text-shadow: 0 1px 3px rgba(0,0,0,0.3);
+      font-variant-numeric: tabular-nums; min-width: 32px;
+    }
+
+    .fc-seek {
+      width: 160px; height: 6px;
+      background: rgba(0,0,0,0.25);
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.4), 0 1px 0 rgba(255,255,255,0.1);
+      border-radius: 3px; cursor: pointer; position: relative; overflow: hidden;
+    }
+    .fc-seek-fill {
+      height: 100%; background: linear-gradient(90deg, var(--accent), #ff8a66);
+      box-shadow: 0 0 10px var(--accent);
+      border-radius: 3px; width: 0; transition: width 0.1s linear;
+    }
+
+    /* ── Drag-drop overlay ─────────────────────── */
+    .drop-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.75);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column; gap: 16px;
+      z-index: 200; pointer-events: none;
+      border: 3px dashed var(--accent);
+    }
+    .drop-overlay.active { display: flex; pointer-events: all; }
+    .drop-icon { font-size: 64px; animation: drop-spin 2s linear infinite; }
+    @keyframes drop-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .drop-text {
+      font-size: 16px; color: #fff; font-weight: 500;
+      text-align: center; max-width: 300px;
+    }
+    .drop-hint { font-size: 12px; color: rgba(255,255,255,.5); }
+
+    /* ── Lift Arm button (touch devices) ────────── */
+    .lift-arm-row {
+      display: none; width: 100%; justify-content: center;
+    }
+    @media (hover: none) and (pointer: coarse) {
+      .lift-arm-row { display: flex; }
+      .tonearm { width: 60px; }
+    }
+
+    /* ── Responsive ────────────────────────────── */
+    @media (min-width: 600px) {
+      .info-panels { flex-direction: row; align-items: flex-start; }
+      .info-card { flex: 1; }
+    }
+
+    @media (max-width: 480px) {
+      :root { --vinyl-size: min(260px, 70vmin); }
+      .focus { --vinyl-size: min(380px, 85vmin); }
+      .turntable {
+        width: calc(var(--vinyl-size) + 60px);
+        height: calc(var(--vinyl-size) + 40px);
+      }
+      .tonearm { right: 6px; }
+      .fc-seek { width: 80px; }
+      .focus-controls { padding: 8px 18px; gap: 12px; border-radius: 40px; }
+    }
+
+    @media print {
+      body { background: #fff; color: #000; }
+    }
+  </style>
+</head>
+<body class="auto-scheme">
+
+  <!-- Drag & Drop Overlay -->
+  <div class="drop-overlay" id="dropOverlay">
+    <div class="drop-icon">💿</div>
+    <div class="drop-text">Drop audio files or a cover image here</div>
+    <div class="drop-hint">MP3 · WAV · OGG · FLAC · PNG · JPG</div>
+  </div>
+
+  <!-- ARIA Live Region -->
+  <div class="sr-only" aria-live="polite" role="status" id="ariaLive"></div>
+
+  <div class="app" id="app">
+    <div class="hint" id="hint">Load or drop audio files to start</div>
+
+    <div class="files">
+      <label aria-label="Choose cover image">🖼 Cover image<input type="file" id="coverIn" accept="image/png,image/jpeg,image/webp"></label>
+      <label aria-label="Add audio files">🎵 Add audio files<input type="file" id="audioIn" accept="audio/*" multiple></label>
+    </div>
+
+    <div class="turntable" id="turntable">
+      <div class="vinyl-wrap" id="vinylWrap">
+        <div class="vinyl" id="vinyl">
+          <div class="vinyl-disc"></div>
+          <div class="vinyl-grooves"></div>
+          <div class="vinyl-label">
+            <img class="cover-img" id="coverImg" alt="Album cover art">
+            <span class="no-cover" id="noCover">No Cover</span>
+          </div>
+          <div class="vinyl-spindle"></div>
+          <div class="vinyl-highlight" id="highlight"></div>
+          <div class="vinyl-sheen"></div>
+          <div class="vinyl-iridescent"></div>
+          <div class="vinyl-dust"></div>
+        </div>
+        <canvas class="bass-canvas" id="bassCanvas" width="400" height="400"></canvas>
+        <div class="vinyl-glow"></div>
+      </div>
+      <div class="tonearm off smooth" id="tonearm" role="slider" aria-label="Tonearm" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="tonearm-base"></div>
+        <div class="tonearm-bar"></div>
+        <div class="tonearm-head"></div>
+      </div>
+    </div>
+
+    <!-- Lift Arm (touch devices) -->
+    <div class="lift-arm-row">
+      <button id="liftArmBtn" aria-label="Lift or lower the tonearm">💪 Lift / Drop Arm</button>
+    </div>
+
+    <div class="tracklist" role="list" aria-label="Tracklist">
+      <h3>Tracklist</h3>
+      <ol id="tracklistOl" role="list"></ol>
+      <div class="tracklist-empty" id="tracklistEmpty">No tracks — drag & drop or add files above</div>
+    </div>
+
+    <div class="row">
+      <button id="prevBtn" disabled aria-label="Previous track">⏮</button>
+      <button id="playBtn" disabled aria-label="Play">▶ Play</button>
+      <button id="nextBtn" disabled aria-label="Next track">⏭</button>
+      <button id="shuffleBtn" aria-label="Toggle shuffle" title="Shuffle">🔀</button>
+      <button id="repeatBtn" aria-label="Cycle repeat mode" title="Repeat: Off">🔁</button>
+      <select id="rpmSel" aria-label="RPM speed">
+        <option value="33">33⅓ RPM</option>
+        <option value="45">45 RPM</option>
+        <option value="78">78 RPM</option>
+      </select>
+      <select id="themeSel" aria-label="Turntable theme">
+        <option value="">Minimal</option>
+        <option value="theme-wood">Wood</option>
+        <option value="theme-clear">Clear</option>
+      </select>
+      <button id="modeBtn" title="Light / dark mode" aria-label="Toggle light or dark mode">☀</button>
+    </div>
+
+    <div class="color-row">
+      <div class="color-group">
+        <span class="swatch-label">Accent</span>
+        <input type="color" id="accentPick" value="#e8562a" aria-label="Accent color">
+        <input type="text" class="hex-input" id="accentHex" value="#e8562a" maxlength="7" spellcheck="false" aria-label="Accent hex color">
+      </div>
+      <div class="color-group">
+        <span class="swatch-label">BG</span>
+        <input type="color" id="bgPick" value="#1a1a1e" aria-label="Background color">
+        <input type="text" class="hex-input" id="bgHex" value="#1a1a1e" maxlength="7" spellcheck="false" aria-label="Background hex color">
+      </div>
+      <div class="color-group">
+        <span class="swatch-label">Panel</span>
+        <input type="color" id="surfacePick" value="#242428" aria-label="Panel color">
+        <input type="text" class="hex-input" id="surfaceHex" value="#242428" maxlength="7" spellcheck="false" aria-label="Panel hex color">
+      </div>
+      <div class="color-group">
+        <span class="swatch-label">Text</span>
+        <input type="color" id="textPick" value="#e8e8e8" aria-label="Text color">
+        <input type="text" class="hex-input" id="textHex" value="#e8e8e8" maxlength="7" spellcheck="false" aria-label="Text hex color">
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="group"><span id="volLabel">Vol</span><input type="range" id="vol" min="0" max="1" step=".01" value=".8" aria-label="Volume"></div>
+      <div class="group" id="time" aria-label="Current time">0:00 / 0:00</div>
+      <div class="group"><label><input type="checkbox" id="scratchChk"> Scratch</label></div>
+      <div class="group"><label><input type="checkbox" id="sfxChk" checked> Effects</label></div>
+    </div>
+
+    <div class="row">
+      <div class="group"><span id="bassLabel">Bass</span><input type="range" id="bassSlider" min="-12" max="12" step="1" value="0" aria-label="Bass EQ"></div>
+      <div class="group"><span id="midLabel">Mid</span><input type="range" id="midSlider" min="-12" max="12" step="1" value="0" aria-label="Mid EQ"></div>
+      <div class="group"><span id="trebleLabel">Treble</span><input type="range" id="trebleSlider" min="-12" max="12" step="1" value="0" aria-label="Treble EQ"></div>
+      <div class="group"><span>Vinyl noise</span><input type="range" id="noiseSlider" min="0" max="1" step=".01" value="0" aria-label="Vinyl noise level"></div>
+    </div>
+
+    <div class="about-wrap" id="aboutWrap">
+      <button class="about-toggle" id="aboutToggle" aria-expanded="false" aria-controls="aboutBody">
+        <span>Record Info</span><span class="arrow">▼</span>
+      </button>
+      <div class="about-body" id="aboutBody">
+        <div class="info-panels">
+          <div class="info-card">
+            <h4>About This Song</h4>
+            <div class="sleeve-line"><span class="sleeve-label">Track</span><span class="sleeve-val" id="songTitle">—</span></div>
+            <div class="sleeve-line"><span class="sleeve-label">Artist</span><span class="sleeve-val" id="songArtist">—</span></div>
+            <div class="sleeve-line"><span class="sleeve-label">Album</span><span class="sleeve-val" id="songAlbum">—</span></div>
+            <div class="sleeve-line"><span class="sleeve-label">Length</span><span class="sleeve-val" id="songDuration">—</span></div>
+            <div class="sleeve-notes editable" id="songNotes" contenteditable="true" spellcheck="false">Drop the needle to see track details.</div>
+          </div>
+          <div class="info-card">
+            <h4>About This Album</h4>
+            <div class="sleeve-line"><span class="sleeve-label">Artist</span><span class="sleeve-val editable" id="aboutArtist" contenteditable="true" spellcheck="false">—</span></div>
+            <div class="sleeve-line"><span class="sleeve-label">Year</span><span class="sleeve-val editable" id="aboutYear" contenteditable="true" spellcheck="false">—</span></div>
+            <div class="sleeve-line"><span class="sleeve-label">Genre</span><span class="sleeve-val editable" id="aboutGenre" contenteditable="true" spellcheck="false">—</span></div>
+            <div class="sleeve-notes editable" id="albumNotes" contenteditable="true" spellcheck="false">Click to add your own liner notes. Good records deserve good stories.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="focus-bar">
+      <button id="focusBtn" title="Focus mode" aria-label="Toggle focus mode">⛶ Focus</button>
+    </div>
+
+    <!-- Focus mode floating controls -->
+    <div class="focus-controls" id="focusControls">
+      <button class="fc-btn" id="fcPrev" aria-label="Previous track">⏮</button>
+      <button class="fc-btn fc-play" id="fcPlay" aria-label="Play or pause">▶</button>
+      <button class="fc-btn" id="fcNext" aria-label="Next track">⏭</button>
+      <span class="fc-time" id="fcTime">0:00</span>
+      <div class="fc-seek" id="fcSeek" role="progressbar" aria-label="Seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="fc-seek-fill" id="fcSeekFill"></div>
+      </div>
+      <span class="fc-time" id="fcDur">0:00</span>
+      <button class="fc-btn" id="fcExit" aria-label="Exit focus mode">✕</button>
+    </div>
+  </div>
+
+  <audio id="audio" preload="auto" crossorigin="anonymous"></audio>
+
+  <script>
+  (() => {
+    'use strict';
+
+    // ─── CONSTANTS ───────────────────────────────────────────────
+    const C = Object.freeze({
+      /** Visual rotation speed at 33⅓ RPM (degrees per frame) */
+      VINYL_SPEED_33: 1.8,
+      /** Friction multiplier when decelerating */
+      VINYL_FRICTION: 0.93,
+      /** Minimum velocity threshold before stopping */
+      VINYL_MIN_VEL: 0.01,
+      /** Degrees-to-seconds ratio for normal scrub */
+      SEC_PER_DEG: 1.8 / 360,
+      /** Degrees-to-seconds ratio for scratch mode */
+      SEC_PER_DEG_SCRATCH: 3.6 / 360,
+      /** Tonearm angles */
+      NEEDLE_OFF: -8,
+      NEEDLE_START: 8,
+      NEEDLE_END: 24,
+      /** RPM speed mappings */
+      RPM: {
+        33: { rate: 1.0,   visual: 1.8 },
+        45: { rate: 1.35,  visual: 2.43 },
+        78: { rate: 2.34,  visual: 4.21 }
+      },
+      /** IndexedDB config */
+      DB_NAME: 'vinyl-db',
+      DB_VER: 2,
+      DB_TRACKS: 'tracks',
+      DB_META: 'meta',
+      /** localStorage keys */
+      PREFS_KEY: 'vinyl-prefs',
+      TRACKS_KEY: 'vinyl-tracks',
+      /** Regex for validating hex color codes */
+      HEX_RE: /^#[0-9a-f]{6}$/i,
+      /** Bass visualizer settings */
+      BASS_BINS: 8,
+      BASS_CANVAS_SIZE: 400,
+      /** Repeat modes */
+      REPEAT_OFF: 0,
+      REPEAT_ONE: 1,
+      REPEAT_ALL: 2,
+      REPEAT_LABELS: ['Off', 'One', 'All'],
+      REPEAT_ICONS: ['🔁', '🔂', '🔁'],
+      /** ID3 genre list (standard) */
+      GENRES: ['Blues','Classic Rock','Country','Dance','Disco','Funk','Grunge',
+        'Hip-Hop','Jazz','Metal','New Age','Oldies','Other','Pop','R&B','Rap',
+        'Reggae','Rock','Techno','Industrial','Alternative','Ska','Death Metal',
+        'Pranks','Soundtrack','Euro-Techno','Ambient','Trip-Hop','Vocal',
+        'Jazz+Funk','Fusion','Trance','Classical','Instrumental','Acid','House',
+        'Game','Sound Clip','Gospel','Noise','Alt. Rock','Bass','Soul','Punk',
+        'Space','Meditative','Instrumental Pop','Instrumental Rock','Ethnic',
+        'Gothic','Darkwave','Techno-Industrial','Electronic','Pop-Folk',
+        'Eurodance','Dream','Southern Rock','Comedy','Cult','Gangsta Rap',
+        'Top 40','Christian Rap','Pop/Funk','Jungle','Native American','Cabaret',
+        'New Wave','Psychedelic','Rave','Showtunes','Trailer','Lo-Fi','Tribal',
+        'Acid Punk','Acid Jazz','Polka','Retro','Musical','Rock & Roll','Hard Rock']
+    });
+
+    // ─── DOM REFERENCES ──────────────────────────────────────────
+    const DOM = {};
+    const $ = id => document.getElementById(id);
+
+    function initDOM() {
+      const ids = [
+        'app','turntable','vinylWrap','vinyl','tonearm','highlight',
+        'coverImg','noCover','playBtn','prevBtn','nextBtn','shuffleBtn',
+        'repeatBtn','rpmSel','themeSel','modeBtn','focusBtn',
+        'aboutToggle','aboutWrap','aboutBody',
+        'vol','bassSlider','midSlider','trebleSlider','noiseSlider',
+        'scratchChk','sfxChk',
+        'accentPick','accentHex','bgPick','bgHex',
+        'surfacePick','surfaceHex','textPick','textHex',
+        'coverIn','audioIn','hint','time',
+        'tracklistOl','tracklistEmpty',
+        'songTitle','songArtist','songAlbum','songDuration','songNotes',
+        'aboutArtist','aboutYear','aboutGenre','albumNotes',
+        'audio','bassCanvas','dropOverlay','ariaLive','liftArmBtn',
+        'focusControls','fcPrev','fcPlay','fcNext','fcTime','fcDur',
+        'fcSeek','fcSeekFill','fcExit',
+        'bassLabel','midLabel','trebleLabel','volLabel'
+      ];
+      ids.forEach(id => { DOM[id] = $(id); });
+    }
+
+    // ─── STATE ───────────────────────────────────────────────────
+    const State = {
+      playing: false,
+      needleOn: false,
+      trackLoaded: false,
+      currentIdx: -1,
+      playlist: [],
+      vinylAngle: 0,
+      vinylVelocity: 0,
+      vinylDragging: false,
+      vinylWasPlaying: false,
+      dragStartAngle: 0,
+      dragBaseAngle: 0,
+      dragStartTime: 0,
+      prevDragAngle: 0,
+      lastTimestamp: 0,
+      lastRenderIdx: -2,
+      armDragging: false,
+      armDidMove: false,
+      armStartAngle: 0,
+      armStartPointerAngle: 0,
+      armPivotX: 0,
+      armPivotY: 0,
+      prevArmAngle: 0,
+      scratchMode: false,
+      effectsEnabled: true,
+      hasCustomColors: false,
+      shuffleOn: false,
+      shuffleQueue: [],
+      shuffleIdx: -1,
+      repeatMode: 0,
+      currentRPM: 33,
+      audioCtx: null,
+      ctxReady: false,
+      srcNode: null,
+      bassEQ: null,
+      midEQ: null,
+      trebleEQ: null,
+      masterGain: null,
+      globalGain: null,
+      noiseNode: null,
+      noiseGain: null,
+      analyser: null,
+      freqData: null,
+      scratchBuffer: null,
+      activeScratchSrc: null,
+      activeScratchGain: null,
+      activeScratchFilter: null,
+      coverUrl: null,
+      coverDataUrl: null,
+      db: null,
+      idCounter: Date.now(),
+      dragCounter: 0,
+    };
+
+    // ─── UTILS ───────────────────────────────────────────────────
+    const Utils = {
+      clamp: (v, lo, hi) => Math.max(lo, Math.min(hi, v)),
+
+      safeDuration: () => {
+        const d = DOM.audio.duration;
+        return (d && isFinite(d) && d > 0) ? d : 0;
+      },
+
+      getCurrentTime: () => DOM.audio.currentTime,
+
+      formatTime: s => {
+        if (!isFinite(s) || s < 0) s = 0;
+        return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+      },
+
+      cleanName: n => n.replace(/\.[^.]+$/, ''),
+
+      getPointer: e => ({ x: e.clientX, y: e.clientY }),
+
+      pointerAngle: (el, x, y) => {
+        const r = el.getBoundingClientRect();
+        return Math.atan2(y - r.top - r.height / 2, x - r.left - r.width / 2) * 180 / Math.PI;
+      },
+
+      wrapDelta: (a, b) => {
+        let d = a - b;
+        while (d > 180) d -= 360;
+        while (d < -180) d += 360;
+        return d;
+      },
+
+      hexToHSL: hex => {
+        let r = parseInt(hex.slice(1, 3), 16) / 255;
+        let g = parseInt(hex.slice(3, 5), 16) / 255;
+        let b = parseInt(hex.slice(5, 7), 16) / 255;
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+        let h = 0, s = 0, l = (mx + mn) / 2;
+        if (mx !== mn) {
+          const d = mx - mn;
+          s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+          if (mx === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+          else if (mx === g) h = ((b - r) / d + 2) / 6;
+          else h = ((r - g) / d + 4) / 6;
+        }
+        return [Math.round(h * 360), Math.round(s * 100), Math.round(l * 100)];
+      },
+
+      shiftHex: (hex, amt) => {
+        let r = parseInt(hex.slice(1, 3), 16);
+        let g = parseInt(hex.slice(3, 5), 16);
+        let b = parseInt(hex.slice(5, 7), 16);
+        if (amt > 0) { r += (255 - r) * amt; g += (255 - g) * amt; b += (255 - b) * amt; }
+        else { const a = -amt; r *= 1 - a; g *= 1 - a; b *= 1 - a; }
+        return '#' + [r, g, b].map(c => Math.min(255, Math.max(0, Math.round(c))).toString(16).padStart(2, '0')).join('');
+      },
+
+      isLightColor: hex => {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return (r * 299 + g * 587 + b * 114) / 1000 > 140;
+      },
+
+      getArmPivot: () => {
+        const tr = DOM.turntable.getBoundingClientRect();
+        const isMobile = window.innerWidth <= 480;
+        return { x: tr.right - (isMobile ? 6 : 16) - 25, y: tr.top + (-8) };
+      },
+
+      readArmAngle: () => {
+        const m = DOM.tonearm.style.transform.match(/rotate\(([-\d.]+)deg\)/);
+        return m ? parseFloat(m[1]) : C.NEEDLE_OFF;
+      },
+
+      announce: text => {
+        if (DOM.ariaLive) {
+          DOM.ariaLive.textContent = '';
+          requestAnimationFrame(() => { DOM.ariaLive.textContent = text; });
+        }
+      },
+
+      bufferToDataUrl: (buffer, mime) => {
+        return new Promise(resolve => {
+          const blob = new Blob([buffer], { type: mime });
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+      },
+
+      blobToDataUrl: blob => {
+        return new Promise(resolve => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+      },
+
+      rpmConfig: () => C.RPM[State.currentRPM] || C.RPM[33]
+    };
+
+    // ─── ID3 METADATA PARSER ─────────────────────────────────────
+    const ID3 = {
+      parse(buf) {
+        const result = { title: '', artist: '', album: '', year: '', genre: '', coverBlob: null };
+        if (buf.byteLength < 10) return result;
+        const view = new DataView(buf);
+
+        const hdr = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2));
+        if (hdr === 'ID3') {
+          const ver = view.getUint8(3);
+          const flags = view.getUint8(5);
+          const size = ID3._syncsafe(view, 6);
+          let offset = 10;
+          if (flags & 0x40) {
+            const extSize = ver === 4 ? ID3._syncsafe(view, 10) : view.getUint32(10);
+            offset += extSize;
+          }
+          ID3._parseFrames(new Uint8Array(buf), view, offset, offset + size, ver, result);
+        }
+
+        if (!result.title && !result.artist && buf.byteLength >= 128) {
+          ID3._parseV1(view, buf.byteLength, result);
+        }
+        return result;
+      },
+
+      _syncsafe(view, off) {
+        return (view.getUint8(off) << 21) | (view.getUint8(off + 1) << 14) |
+               (view.getUint8(off + 2) << 7) | view.getUint8(off + 3);
+      },
+
+      _parseFrames(bytes, view, pos, end, ver, result) {
+        while (pos < end - 10) {
+          const id = String.fromCharCode(bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]);
+          if (!/^[A-Z0-9]{4}$/.test(id)) break;
+
+          const size = ver === 4 ? ID3._syncsafe(view, pos + 4) : view.getUint32(pos + 4);
+          if (size <= 0 || pos + 10 + size > end) break;
+
+          const data = bytes.slice(pos + 10, pos + 10 + size);
+          switch (id) {
+            case 'TIT2': result.title = ID3._decodeText(data); break;
+            case 'TPE1': result.artist = ID3._decodeText(data); break;
+            case 'TALB': result.album = ID3._decodeText(data); break;
+            case 'TYER': case 'TDRC': result.year = ID3._decodeText(data).slice(0, 4); break;
+            case 'TCON': result.genre = ID3._decodeGenre(data); break;
+            case 'APIC': result.coverBlob = ID3._parseAPIC(data); break;
+          }
+          pos += 10 + size;
+        }
+      },
+
+      _decodeText(data) {
+        if (data.length < 2) return '';
+        const enc = data[0];
+        const text = data.slice(1);
+        if (enc === 3) return new TextDecoder('utf-8').decode(text).replace(/\0/g, '');
+        if (enc === 0) return Array.from(text).map(b => String.fromCharCode(b)).join('').replace(/\0/g, '');
+        if (enc === 1 || enc === 2) {
+          let start = 0, le = enc === 2 ? false : undefined;
+          if (enc === 1 && text.length >= 2) {
+            le = (text[0] === 0xFF && text[1] === 0xFE);
+            start = 2;
+          }
+          let str = '';
+          for (let i = start; i < text.length - 1; i += 2) {
+            const code = le ? (text[i] | (text[i + 1] << 8)) : ((text[i] << 8) | text[i + 1]);
+            if (code === 0) break;
+            str += String.fromCharCode(code);
+          }
+          return str;
+        }
+        return '';
+      },
+
+      _decodeGenre(data) {
+        let text = ID3._decodeText(data);
+        const m = text.match(/^\((\d+)\)/);
+        if (m) {
+          const idx = parseInt(m[1]);
+          if (idx < C.GENRES.length) return C.GENRES[idx];
+        }
+        return text;
+      },
+
+      _parseAPIC(data) {
+        if (data.length < 4) return null;
+        const enc = data[0];
+        let pos = 1;
+        let mime = '';
+        while (pos < data.length && data[pos] !== 0) { mime += String.fromCharCode(data[pos]); pos++; }
+        pos++;
+        pos++;
+        if (enc === 0 || enc === 3) {
+          while (pos < data.length && data[pos] !== 0) pos++;
+          pos++;
+        } else {
+          while (pos < data.length - 1) {
+            if (data[pos] === 0 && data[pos + 1] === 0) { pos += 2; break; }
+            pos += 2;
+          }
+        }
+        if (pos >= data.length) return null;
+        if (!mime || mime === 'image/') mime = 'image/jpeg';
+        return new Blob([data.slice(pos)], { type: mime });
+      },
+
+      _parseV1(view, len, result) {
+        const off = len - 128;
+        const tag = String.fromCharCode(view.getUint8(off), view.getUint8(off + 1), view.getUint8(off + 2));
+        if (tag !== 'TAG') return;
+        const read = (s, n) => {
+          let str = '';
+          for (let i = 0; i < n; i++) {
+            const c = view.getUint8(off + s + i);
+            if (c === 0) break;
+            str += String.fromCharCode(c);
+          }
+          return str.trim();
+        };
+        result.title = result.title || read(3, 30);
+        result.artist = result.artist || read(33, 30);
+        result.album = result.album || read(63, 30);
+        result.year = result.year || read(93, 4);
+        const genreIdx = view.getUint8(off + 127);
+        if (!result.genre && genreIdx < C.GENRES.length) result.genre = C.GENRES[genreIdx];
+      }
+    };
+
+    // ─── AUDIO ENGINE ────────────────────────────────────────────
+    const AudioEngine = {
+      ensure() {
+        if (State.ctxReady) {
+          if (State.audioCtx?.state === 'suspended') State.audioCtx.resume();
+          return;
+        }
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        try {
+          const ctx = State.audioCtx = new Ctx();
+          State.globalGain = ctx.createGain();
+          State.globalGain.connect(ctx.destination);
+          State.srcNode = ctx.createMediaElementSource(DOM.audio);
+          State.bassEQ = ctx.createBiquadFilter();
+          State.bassEQ.type = 'lowshelf'; State.bassEQ.frequency.value = 250;
+          State.midEQ = ctx.createBiquadFilter();
+          State.midEQ.type = 'peaking'; State.midEQ.frequency.value = 1000; State.midEQ.Q.value = 1;
+          State.trebleEQ = ctx.createBiquadFilter();
+          State.trebleEQ.type = 'highshelf'; State.trebleEQ.frequency.value = 4000;
+          State.masterGain = ctx.createGain();
+          State.masterGain.gain.value = 1;
+          State.analyser = ctx.createAnalyser();
+          State.analyser.fftSize = 256;
+          State.freqData = new Uint8Array(State.analyser.frequencyBinCount);
+          State.srcNode.connect(State.bassEQ).connect(State.midEQ)
+            .connect(State.trebleEQ).connect(State.masterGain)
+            .connect(State.analyser).connect(State.globalGain);
+
+          const sr = ctx.sampleRate;
+          const len = sr * 2;
+          const buf = ctx.createBuffer(1, len, sr);
+          const d = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) {
+            d[i] = Math.random() < 0.005 ? (Math.random() - 0.5) * 0.6 : (Math.random() - 0.5) * 0.03;
+          }
+          State.noiseNode = ctx.createBufferSource();
+          State.noiseNode.buffer = buf;
+          State.noiseNode.loop = true;
+          const nf = ctx.createBiquadFilter();
+          nf.type = 'highpass'; nf.frequency.value = 300;
+          State.noiseGain = ctx.createGain();
+          State.noiseGain.gain.value = 0;
+          State.noiseNode.connect(nf).connect(State.noiseGain).connect(State.globalGain);
+          State.noiseNode.start();
+          State.ctxReady = true;
+          DOM.audio.volume = 1;
+          AudioEngine.updateParams();
+        } catch (e) { console.warn('AudioContext init failed:', e); }
+      },
+
+      updateParams() {
+        if (!State.ctxReady) return;
+        const t = State.audioCtx.currentTime;
+        State.globalGain?.gain.setTargetAtTime(parseFloat(DOM.vol.value), t, 0.05);
+        State.bassEQ?.gain.setTargetAtTime(parseFloat(DOM.bassSlider.value), t, 0.05);
+        State.midEQ?.gain.setTargetAtTime(parseFloat(DOM.midSlider.value), t, 0.05);
+        State.trebleEQ?.gain.setTargetAtTime(parseFloat(DOM.trebleSlider.value), t, 0.05);
+        const noiseActive = (State.playing || State.vinylDragging) && State.needleOn;
+        const nv = noiseActive ? parseFloat(DOM.noiseSlider.value) * 0.25 : 0;
+        State.noiseGain?.gain.setTargetAtTime(nv, t, 0.1);
+      },
+
+      getScratchBuffer() {
+        if (State.scratchBuffer) return State.scratchBuffer;
+        const sr = State.audioCtx.sampleRate;
+        const len = sr * 2;
+        const buf = State.audioCtx.createBuffer(1, len, sr);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+        return State.scratchBuffer = buf;
+      },
+
+      startScratch() {
+        if (!State.scratchMode || !State.audioCtx) return;
+        AudioEngine.stopScratch();
+        try {
+          State.activeScratchSrc = State.audioCtx.createBufferSource();
+          State.activeScratchSrc.buffer = AudioEngine.getScratchBuffer();
+          State.activeScratchSrc.loop = true;
+          State.activeScratchFilter = State.audioCtx.createBiquadFilter();
+          State.activeScratchFilter.type = 'bandpass';
+          State.activeScratchFilter.Q.value = 5;
+          State.activeScratchFilter.frequency.value = 400;
+          State.activeScratchGain = State.audioCtx.createGain();
+          State.activeScratchGain.gain.value = 0.001;
+          State.activeScratchSrc.connect(State.activeScratchFilter)
+            .connect(State.activeScratchGain).connect(State.globalGain);
+          State.activeScratchSrc.start();
+        } catch (e) {}
+      },
+
+      updateScratch(vel) {
+        if (!State.scratchMode || !State.activeScratchGain || !State.audioCtx) return;
+        try {
+          const abs = Utils.clamp(Math.abs(vel), 0, 40);
+          const t = State.audioCtx.currentTime;
+          if (abs < 0.2) { State.activeScratchGain.gain.setTargetAtTime(0.001, t, 0.05); return; }
+          State.activeScratchFilter.frequency.setTargetAtTime(Utils.clamp(200 + abs * 80, 200, 3500), t, 0.02);
+          State.activeScratchGain.gain.setTargetAtTime(Utils.clamp(abs * 0.008, 0, 0.1), t, 0.02);
+        } catch (e) {}
+      },
+
+      stopScratch() {
+        if (!State.activeScratchGain || !State.audioCtx) return;
+        try {
+          const g = State.activeScratchGain, s = State.activeScratchSrc;
+          State.activeScratchSrc = State.activeScratchGain = State.activeScratchFilter = null;
+          g?.gain.setTargetAtTime(0.001, State.audioCtx.currentTime, 0.05);
+          setTimeout(() => { try { s?.stop(); s?.disconnect(); g?.disconnect(); } catch {} }, 100);
+        } catch (e) {}
+      },
+
+      scratchBurst(up) {
+        if (!State.scratchMode || !State.audioCtx) return;
+        try {
+          const dur = 0.2, t = State.audioCtx.currentTime;
+          const src = State.audioCtx.createBufferSource();
+          src.buffer = AudioEngine.getScratchBuffer();
+          const f = State.audioCtx.createBiquadFilter();
+          f.type = 'bandpass'; f.Q.value = 4;
+          const g = State.audioCtx.createGain();
+          if (up) {
+            f.frequency.setValueAtTime(300, t); f.frequency.exponentialRampToValueAtTime(2500, t + dur);
+            g.gain.setValueAtTime(0.001, t); g.gain.linearRampToValueAtTime(0.08, t + dur / 2);
+            g.gain.linearRampToValueAtTime(0.001, t + dur);
+          } else {
+            f.frequency.setValueAtTime(2500, t); f.frequency.exponentialRampToValueAtTime(300, t + dur);
+            g.gain.setValueAtTime(0.08, t); g.gain.linearRampToValueAtTime(0.001, t + dur);
+          }
+          src.connect(f).connect(g).connect(State.globalGain);
+          src.start(); src.stop(t + dur);
+        } catch (e) {}
+      },
+
+      playClick() {
+        if (!State.effectsEnabled || !State.audioCtx) return;
+        try {
+          const t = State.audioCtx.currentTime;
+          const osc = State.audioCtx.createOscillator();
+          const g = State.audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(800, t); osc.frequency.exponentialRampToValueAtTime(100, t + 0.05);
+          g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+          osc.connect(g).connect(State.globalGain); osc.start(); osc.stop(t + 0.05);
+        } catch (e) {}
+      },
+
+      playClunk() {
+        if (!State.effectsEnabled || !State.audioCtx) return;
+        try {
+          const t = State.audioCtx.currentTime;
+          const osc = State.audioCtx.createOscillator();
+          const g = State.audioCtx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(120, t); osc.frequency.exponentialRampToValueAtTime(40, t + 0.1);
+          g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+          osc.connect(g).connect(State.globalGain); osc.start(); osc.stop(t + 0.1);
+        } catch (e) {}
+      },
+
+      playWhoosh(up) {
+        if (State.scratchMode || !State.effectsEnabled || !State.audioCtx) return;
+        try {
+          const t = State.audioCtx.currentTime;
+          const src = State.audioCtx.createBufferSource();
+          src.buffer = AudioEngine.getScratchBuffer();
+          const f = State.audioCtx.createBiquadFilter();
+          f.type = 'bandpass';
+          if (up) {
+            f.frequency.setValueAtTime(300, t); f.frequency.linearRampToValueAtTime(800, t + 0.15);
+          } else {
+            f.frequency.setValueAtTime(800, t); f.frequency.linearRampToValueAtTime(300, t + 0.15);
+          }
+          const g = State.audioCtx.createGain();
+          g.gain.setValueAtTime(0.08, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+          src.connect(f).connect(g).connect(State.globalGain); src.start(); src.stop(t + 0.15);
+        } catch (e) {}
+      },
+
+      getBassLevel() {
+        if (!State.analyser || !State.freqData) return 0;
+        State.analyser.getByteFrequencyData(State.freqData);
+        let sum = 0;
+        for (let i = 0; i < C.BASS_BINS; i++) sum += State.freqData[i];
+        return sum / (C.BASS_BINS * 255);
+      }
+    };
+
+    // ─── PERSISTENCE ─────────────────────────────────────────────
+    const Persistence = {
+      openDB: () => new Promise((resolve, reject) => {
+        const req = indexedDB.open(C.DB_NAME, C.DB_VER);
+        req.onupgradeneeded = e => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(C.DB_TRACKS))
+            db.createObjectStore(C.DB_TRACKS, { keyPath: 'id' });
+          if (!db.objectStoreNames.contains(C.DB_META))
+            db.createObjectStore(C.DB_META, { keyPath: 'key' });
+        };
+        req.onsuccess = () => { State.db = req.result; resolve(); };
+        req.onerror = () => reject(req.error);
+      }),
+
+      putTrack: (id, name, buffer, mime, meta) => new Promise(resolve => {
+        if (!State.db) return resolve();
+        try {
+          const tx = State.db.transaction(C.DB_TRACKS, 'readwrite');
+          tx.objectStore(C.DB_TRACKS).put({
+            id, name, buffer, mime,
+            artist: meta?.artist || '',
+            album: meta?.album || '',
+            year: meta?.year || '',
+            genre: meta?.genre || '',
+            notes: meta?.notes || '',
+            coverDataUrl: meta?.coverDataUrl || ''
+          });
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => resolve();
+        } catch (e) { resolve(); }
+      }),
+
+      updateTrackNotes: (id, notes) => new Promise(resolve => {
+        if (!State.db) return resolve();
+        try {
+          const tx = State.db.transaction(C.DB_TRACKS, 'readwrite');
+          const store = tx.objectStore(C.DB_TRACKS);
+          const req = store.get(id);
+          req.onsuccess = () => {
+            if (req.result) { req.result.notes = notes; store.put(req.result); }
+          };
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => resolve();
+        } catch { resolve(); }
+      }),
+
+      deleteTrack: id => new Promise(resolve => {
+        if (!State.db) return resolve();
+        try {
+          const tx = State.db.transaction(C.DB_TRACKS, 'readwrite');
+          tx.objectStore(C.DB_TRACKS).delete(id);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => resolve();
+        } catch { resolve(); }
+      }),
+
+      allTracks: () => new Promise(resolve => {
+        if (!State.db) return resolve([]);
+        try {
+          const tx = State.db.transaction(C.DB_TRACKS, 'readonly');
+          const req = tx.objectStore(C.DB_TRACKS).getAll();
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => resolve([]);
+        } catch { resolve([]); }
+      }),
+
+      saveCover: dataUrl => new Promise(resolve => {
+        if (!State.db) return resolve();
+        try {
+          const tx = State.db.transaction(C.DB_META, 'readwrite');
+          tx.objectStore(C.DB_META).put({ key: 'cover', dataUrl });
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => resolve();
+        } catch { resolve(); }
+      }),
+
+      loadCover: () => new Promise(resolve => {
+        if (!State.db) return resolve(null);
+        try {
+          const tx = State.db.transaction(C.DB_META, 'readonly');
+          const req = tx.objectStore(C.DB_META).get('cover');
+          req.onsuccess = () => resolve(req.result?.dataUrl || null);
+          req.onerror = () => resolve(null);
+        } catch { resolve(null); }
+      }),
+
+      loadPrefs() {
+        try { return JSON.parse(localStorage.getItem(C.PREFS_KEY)) || {}; } catch { return {}; }
+      },
+
+      savePrefs() {
+        try {
+          localStorage.setItem(C.PREFS_KEY, JSON.stringify({
+            theme: DOM.themeSel.value,
+            lightMode: document.body.classList.contains('light-auto'),
+            volume: DOM.vol.value,
+            bass: DOM.bassSlider.value,
+            mid: DOM.midSlider.value,
+            treble: DOM.trebleSlider.value,
+            noise: DOM.noiseSlider.value,
+            sfx: DOM.sfxChk.checked,
+            scratch: DOM.scratchChk.checked,
+            accent: DOM.accentPick.value,
+            bg: DOM.bgPick.value,
+            surface: DOM.surfacePick.value,
+            text: DOM.textPick.value,
+            hasCustomColors: State.hasCustomColors,
+            shuffle: State.shuffleOn,
+            repeat: State.repeatMode,
+            rpm: State.currentRPM,
+            albumInfo: {
+              artist: DOM.aboutArtist.innerText,
+              year: DOM.aboutYear.innerText,
+              genre: DOM.aboutGenre.innerText,
+              notes: DOM.albumNotes.innerText
+            }
+          }));
+        } catch (e) { console.warn('Prefs save failed:', e); }
+      },
+
+      saveOrder() {
+        try { localStorage.setItem(C.TRACKS_KEY, JSON.stringify(State.playlist.map(t => t.id))); } catch {}
+      }
+    };
+
+    // ─── UI ──────────────────────────────────────────────────────
+    const UI = {
+      bumpTurntable() {
+        DOM.turntable.classList.remove('bump');
+        void DOM.turntable.offsetWidth;
+        DOM.turntable.classList.add('bump');
+      },
+
+      updatePlayButton() {
+        const txt = State.playing ? '⏸' : '▶';
+        DOM.playBtn.textContent = State.playing ? '⏸ Pause' : '▶ Play';
+        DOM.playBtn.classList.toggle('on', State.playing);
+        DOM.fcPlay.textContent = txt;
+        DOM.fcPlay.classList.toggle('on', State.playing);
+      },
+
+      updateNavButtons() {
+        const has = State.playlist.length > 0;
+        DOM.playBtn.disabled = !has;
+        DOM.prevBtn.disabled = !has;
+        DOM.nextBtn.disabled = !has;
+      },
+
+      updateShuffleBtn() {
+        DOM.shuffleBtn.classList.toggle('on', State.shuffleOn);
+        DOM.shuffleBtn.title = State.shuffleOn ? 'Shuffle: On' : 'Shuffle: Off';
+      },
+
+      updateRepeatBtn() {
+        DOM.repeatBtn.classList.toggle('on', State.repeatMode > 0);
+        DOM.repeatBtn.textContent = C.REPEAT_ICONS[State.repeatMode];
+        DOM.repeatBtn.title = `Repeat: ${C.REPEAT_LABELS[State.repeatMode]}`;
+        if (State.repeatMode === C.REPEAT_ONE) {
+          DOM.repeatBtn.style.position = 'relative';
+        }
+      },
+
+      updateRPM() {
+        DOM.rpmSel.value = String(State.currentRPM);
+        const cfg = Utils.rpmConfig();
+        DOM.audio.playbackRate = cfg.rate;
+      },
+
+      renderSongInfo(track) {
+        if (!track) {
+          DOM.songTitle.textContent = '—';
+          DOM.songArtist.textContent = '—';
+          DOM.songAlbum.textContent = '—';
+          DOM.songDuration.textContent = '—';
+          DOM.songNotes.textContent = 'Drop the needle to see track details.';
+          return;
+        }
+        DOM.songTitle.textContent = track.name || '—';
+        DOM.songArtist.textContent = track.artist || '—';
+        DOM.songAlbum.textContent = track.album || '—';
+        DOM.songDuration.textContent = track.duration > 0 ? Utils.formatTime(track.duration) : 'Unknown';
+        DOM.songNotes.textContent = track.notes || `Spinning "${track.name}".`;
+      },
+
+      renderTracklist() {
+        DOM.tracklistOl.innerHTML = '';
+        DOM.tracklistEmpty.style.display = State.playlist.length ? 'none' : 'block';
+        State.playlist.forEach((track, i) => {
+          const li = document.createElement('li');
+          li.setAttribute('role', 'listitem');
+          if (i === State.currentIdx) li.classList.add('active');
+          const title = document.createElement('span');
+          title.className = 'trk-title';
+          title.textContent = track.name;
+          const artist = document.createElement('span');
+          artist.className = 'trk-artist';
+          artist.textContent = track.artist || '';
+          const dur = document.createElement('span');
+          dur.className = 'trk-dur';
+          dur.textContent = track.duration > 0 ? Utils.formatTime(track.duration) : '—';
+          const rm = document.createElement('button');
+          rm.className = 'trk-rm'; rm.textContent = '✕';
+          rm.title = 'Remove'; rm.setAttribute('aria-label', `Remove ${track.name}`);
+          rm.addEventListener('click', e => {
+            e.stopPropagation(); AudioEngine.ensure(); AudioEngine.playClick();
+            Player.removeTrack(i);
+          });
+          li.append(title, artist, dur, rm);
+          li.addEventListener('click', () => {
+            AudioEngine.ensure(); AudioEngine.playClick(); UI.bumpTurntable();
+            if (i === State.currentIdx) {
+              try { DOM.audio.currentTime = 0; } catch {}
+              if (!State.playing) Player.play();
+              return;
+            }
+            Player.stop(); Player.loadTrack(i); Player.play();
+          });
+          DOM.tracklistOl.appendChild(li);
+        });
+      },
+
+      scrollActiveTrack() {
+        const el = DOM.tracklistOl.querySelector('li.active');
+        if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      },
+
+      getNeedleAngle() {
+        if (!State.needleOn) return C.NEEDLE_OFF;
+        const d = Utils.safeDuration();
+        if (d <= 0) return C.NEEDLE_START;
+        const pct = Utils.clamp(Utils.getCurrentTime() / d, 0, 1);
+        return C.NEEDLE_START + (C.NEEDLE_END - C.NEEDLE_START) * pct;
+      },
+
+      updateNeedle() {
+        if (State.armDragging) return;
+        DOM.tonearm.style.transform = `rotate(${UI.getNeedleAngle()}deg)`;
+      },
+
+      setNeedle(on) {
+        if (State.needleOn !== on) AudioEngine.playClunk();
+        State.needleOn = on;
+        DOM.tonearm.classList.toggle('off', !on);
+        if (!on && State.playing) {
+          Player.stop();
+        }
+        AudioEngine.updateParams();
+        UI.updateNeedle();
+      },
+
+      updateHighlight(cx, cy) {
+        const r = DOM.vinylWrap.getBoundingClientRect();
+        const a = Math.atan2(cy - r.top - r.height / 2, cx - r.left - r.width / 2) * 180 / Math.PI;
+        DOM.highlight.style.background = `conic-gradient(from ${a - 20}deg, transparent 0deg, rgba(255,255,255,.1) 30deg, rgba(255,255,255,.03) 55deg, transparent 75deg, transparent 165deg, rgba(255,255,255,.06) 200deg, rgba(255,255,255,.02) 230deg, transparent 260deg)`;
+      },
+
+      flashEQ(labelEl) {
+        labelEl.classList.remove('eq-flash');
+        void labelEl.offsetWidth;
+        labelEl.classList.add('eq-flash');
+      },
+
+      setCoverFromDataUrl(dataUrl) {
+        if (!dataUrl) return;
+        State.coverDataUrl = dataUrl;
+        DOM.coverImg.src = dataUrl;
+        DOM.coverImg.style.display = 'block';
+        DOM.noCover.style.display = 'none';
+      },
+
+      drawBassRing(level) {
+        const canvas = DOM.bassCanvas;
+        const ctx = canvas.getContext('2d');
+        const size = C.BASS_CANVAS_SIZE;
+        ctx.clearRect(0, 0, size, size);
+        if (level < 0.02 || !State.playing) return;
+
+        const cx = size / 2, cy = size / 2;
+        const labelR = size * 0.18;
+        const style = getComputedStyle(document.documentElement);
+        const h = style.getPropertyValue('--accent-h').trim();
+        const s = style.getPropertyValue('--accent-s').trim();
+        const l = style.getPropertyValue('--accent-l').trim();
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, labelR + 4 + level * 8, 0, Math.PI * 2);
+        ctx.strokeStyle = `hsla(${h}, ${s}, ${l}, ${level * 0.5})`;
+        ctx.lineWidth = 2 + level * 6;
+        ctx.shadowColor = `hsla(${h}, ${s}, ${l}, ${level * 0.4})`;
+        ctx.shadowBlur = 8 + level * 24;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, labelR + 1, 0, Math.PI * 2);
+        ctx.strokeStyle = `hsla(${h}, ${s}, ${l}, ${level * 0.25})`;
+        ctx.lineWidth = 1;
+        ctx.shadowBlur = 4 + level * 10;
+        ctx.stroke();
+      }
+    };
+
+    // ─── PLAYER ──────────────────────────────────────────────────
+    const Player = {
+      isReady: () => State.trackLoaded && State.currentIdx >= 0 && State.currentIdx < State.playlist.length,
+
+      play() {
+        if (!Player.isReady()) return;
+
+        AudioEngine.ensure();
+        if (!State.needleOn) UI.setNeedle(true);
+        UI.bumpTurntable();
+        if (State.scratchMode) AudioEngine.scratchBurst(true);
+        UI.updateRPM();
+        const p = DOM.audio.play();
+        if (p !== undefined) {
+          p.then(() => {
+            State.playing = true;
+            State.vinylVelocity = Utils.rpmConfig().visual;
+            UI.updatePlayButton();
+            AudioEngine.updateParams();
+            UI.scrollActiveTrack();
+            const track = State.playlist[State.currentIdx];
+            Utils.announce(`Now playing: ${track.name}${track.artist ? ' by ' + track.artist : ''}`);
+          }).catch(() => {
+            DOM.hint.textContent = 'Tap play again (browser blocked autoplay)';
+            State.playing = false;
+            UI.updatePlayButton();
+          });
+        } else {
+          State.playing = true;
+          State.vinylVelocity = Utils.rpmConfig().visual;
+          UI.updatePlayButton();
+          AudioEngine.updateParams();
+        }
+      },
+
+      stop() {
+        if (State.playing && State.scratchMode) AudioEngine.scratchBurst(false);
+        DOM.audio.pause();
+        State.playing = false;
+        UI.updatePlayButton();
+        AudioEngine.updateParams();
+      },
+
+      loadTrack(idx) {
+        if (idx < 0 || idx >= State.playlist.length) return;
+
+        State.currentIdx = idx;
+        State.trackLoaded = true;
+        const track = State.playlist[idx];
+        DOM.audio.src = track.url;
+        UI.updateRPM();
+        DOM.hint.textContent = track.artist ? `${track.artist} — ${track.name}` : track.name;
+        State.lastRenderIdx = -2;
+        UI.renderTracklist();
+        UI.renderSongInfo(track);
+        if (track.coverDataUrl) {
+          UI.setCoverFromDataUrl(track.coverDataUrl);
+        }
+      },
+
+      async addFiles(files) {
+        let firstNewIdx = State.playlist.length;
+        for (const f of files) {
+          const id = 't' + (++State.idCounter);
+          let buffer;
+          try { buffer = await f.arrayBuffer(); } catch { continue; }
+          const mime = f.type || 'audio/mpeg';
+
+          const meta = ID3.parse(buffer);
+          const name = meta.title || Utils.cleanName(f.name);
+          let coverDataUrl = '';
+
+          if (meta.coverBlob) {
+            try {
+              coverDataUrl = await Utils.blobToDataUrl(meta.coverBlob);
+              if (!State.coverDataUrl) {
+                UI.setCoverFromDataUrl(coverDataUrl);
+                Persistence.saveCover(coverDataUrl);
+              }
+            } catch {}
+          }
+
+          await Persistence.putTrack(id, name, buffer, mime, {
+            artist: meta.artist, album: meta.album,
+            year: meta.year, genre: meta.genre,
+            notes: '', coverDataUrl
+          });
+
+          const blob = new Blob([buffer], { type: mime });
+          const url = URL.createObjectURL(blob);
+          const entry = {
+            id, name, url, duration: 0,
+            artist: meta.artist, album: meta.album,
+            year: meta.year, genre: meta.genre,
+            notes: '', coverDataUrl
+          };
+          State.playlist.push(entry);
+
+          if (meta.artist && DOM.aboutArtist.innerText === '—') DOM.aboutArtist.innerText = meta.artist;
+          if (meta.year && DOM.aboutYear.innerText === '—') DOM.aboutYear.innerText = meta.year;
+          if (meta.genre && DOM.aboutGenre.innerText === '—') DOM.aboutGenre.innerText = meta.genre;
+
+          Player.probeDuration(url).then(d => {
+            entry.duration = d;
+            UI.renderTracklist();
+            if (entry === State.playlist[State.currentIdx]) UI.renderSongInfo(entry);
+          });
+        }
+        UI.renderTracklist();
+        UI.updateNavButtons();
+        Persistence.saveOrder();
+        Persistence.savePrefs();
+        if (State.shuffleOn) Player.rebuildShuffleQueue();
+        if (State.currentIdx < 0 && State.playlist.length) Player.loadTrack(firstNewIdx);
+      },
+
+      probeDuration: url => new Promise(resolve => {
+        const t = new Audio();
+        t.preload = 'metadata';
+        let done = false;
+        const finish = v => { if (done) return; done = true; resolve(v); try { t.removeAttribute('src'); t.load(); } catch {} };
+        t.addEventListener('loadedmetadata', () => finish(t.duration || 0), { once: true });
+        t.addEventListener('error', () => finish(0), { once: true });
+        setTimeout(() => finish(0), 5000);
+        t.src = url;
+      }),
+
+      async restoreTracks() {
+        const rows = await Persistence.allTracks();
+        if (!rows.length) return;
+        for (const r of rows) {
+          const n = parseInt(r.id.replace(/\D/g, ''), 10);
+          if (n >= State.idCounter) State.idCounter = n + 1;
+        }
+        let order;
+        try { order = JSON.parse(localStorage.getItem(C.TRACKS_KEY)); } catch { order = null; }
+        const byId = {};
+        rows.forEach(r => { byId[r.id] = r; });
+        const ordered = order ? order.filter(id => byId[id]).map(id => byId[id]) : rows;
+        rows.forEach(r => { if (!ordered.includes(r)) ordered.push(r); });
+
+        for (const r of ordered) {
+          const blob = new Blob([r.buffer], { type: r.mime || 'audio/mpeg' });
+          const url = URL.createObjectURL(blob);
+          const entry = {
+            id: r.id, name: r.name, url, duration: 0,
+            artist: r.artist || '', album: r.album || '',
+            year: r.year || '', genre: r.genre || '',
+            notes: r.notes || '', coverDataUrl: r.coverDataUrl || ''
+          };
+          State.playlist.push(entry);
+          Player.probeDuration(url).then(d => {
+            entry.duration = d;
+            UI.renderTracklist();
+            if (entry === State.playlist[State.currentIdx]) UI.renderSongInfo(entry);
+          });
+        }
+        UI.renderTracklist();
+        UI.updateNavButtons();
+        if (State.playlist.length) Player.loadTrack(0);
+        if (State.shuffleOn) Player.rebuildShuffleQueue();
+      },
+
+      async removeTrack(idx) {
+        if (idx < 0 || idx >= State.playlist.length) return;
+        const wasActive = idx === State.currentIdx;
+        const wasPlaying = State.playing;
+        if (wasActive) Player.stop();
+        URL.revokeObjectURL(State.playlist[idx].url);
+        await Persistence.deleteTrack(State.playlist[idx].id);
+        State.playlist.splice(idx, 1);
+        if (!State.playlist.length) {
+          State.currentIdx = -1; State.trackLoaded = false;
+          try { DOM.audio.removeAttribute('src'); DOM.audio.load(); } catch {}
+          DOM.hint.textContent = 'Load audio files to start';
+          DOM.time.textContent = '0:00 / 0:00';
+          UI.setNeedle(false); UI.renderSongInfo(null);
+        } else if (wasActive) {
+          Player.loadTrack(Math.min(idx, State.playlist.length - 1));
+          if (wasPlaying) Player.play();
+        } else if (idx < State.currentIdx) {
+          State.currentIdx--;
+        }
+        State.lastRenderIdx = -2;
+        UI.renderTracklist(); UI.updateNavButtons();
+        Persistence.saveOrder();
+        if (State.shuffleOn) Player.rebuildShuffleQueue();
+      },
+
+      rebuildShuffleQueue() {
+        const indices = State.playlist.map((_, i) => i);
+        for (let i = indices.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [indices[i], indices[j]] = [indices[j], indices[i]];
+        }
+        if (State.currentIdx >= 0) {
+          const ci = indices.indexOf(State.currentIdx);
+          if (ci > 0) { [indices[0], indices[ci]] = [indices[ci], indices[0]]; }
+          State.shuffleIdx = 0;
+        } else {
+          State.shuffleIdx = -1;
+        }
+        State.shuffleQueue = indices;
+      },
+
+      getNextIdx() {
+        if (State.repeatMode === C.REPEAT_ONE) return State.currentIdx;
+        if (State.shuffleOn && State.shuffleQueue.length > 0) {
+          State.shuffleIdx++;
+          if (State.shuffleIdx >= State.shuffleQueue.length) {
+            if (State.repeatMode === C.REPEAT_ALL) {
+              Player.rebuildShuffleQueue();
+              State.shuffleIdx = 0;
+            } else {
+              return -1;
+            }
+          }
+          return State.shuffleQueue[State.shuffleIdx];
+        }
+        const next = State.currentIdx + 1;
+        if (next >= State.playlist.length) {
+          return State.repeatMode === C.REPEAT_ALL ? 0 : -1;
+        }
+        return next;
+      },
+
+      getPrevIdx() {
+        if (State.shuffleOn && State.shuffleQueue.length > 0) {
+          State.shuffleIdx--;
+          if (State.shuffleIdx < 0) State.shuffleIdx = State.shuffleQueue.length - 1;
+          return State.shuffleQueue[State.shuffleIdx];
+        }
+        return State.currentIdx > 0 ? State.currentIdx - 1 : State.playlist.length - 1;
+      },
+
+      onTrackEnd() {
+        const nextIdx = Player.getNextIdx();
+        if (nextIdx >= 0 && nextIdx < State.playlist.length) {
+          Player.stop();
+          Player.loadTrack(nextIdx);
+          Player.play();
+        } else {
+          Player.stop();
+          try { DOM.audio.currentTime = 0; } catch {}
+        }
+      },
+
+      async setCoverFromFile(file) {
+        AudioEngine.ensure();
+        AudioEngine.playClick();
+        if (State.coverUrl) URL.revokeObjectURL(State.coverUrl);
+        const dataUrl = await Utils.blobToDataUrl(file);
+        UI.setCoverFromDataUrl(dataUrl);
+        Persistence.saveCover(dataUrl);
+      }
+    };
+
+    // ─── THEMING ─────────────────────────────────────────────────
+    const Theming = {
+      applyAccent(hex) {
+        if (!C.HEX_RE.test(hex)) return;
+        const [h, s, l] = Utils.hexToHSL(hex);
+        const root = document.documentElement.style;
+        root.setProperty('--accent', hex);
+        root.setProperty('--accent-h', h);
+        root.setProperty('--accent-s', s + '%');
+        root.setProperty('--accent-l', l + '%');
+        DOM.accentPick.value = hex;
+        DOM.accentHex.value = hex;
+      },
+
+      applyBg(hex) {
+        if (!C.HEX_RE.test(hex)) return;
+        document.documentElement.style.setProperty('--bg', hex);
+        DOM.bgPick.value = hex; DOM.bgHex.value = hex;
+        State.hasCustomColors = true;
+        document.body.classList.remove('light-auto');
+        document.body.classList.add('has-custom-colors');
+      },
+
+      applySurface(hex) {
+        if (!C.HEX_RE.test(hex)) return;
+        const root = document.documentElement.style;
+        root.setProperty('--surface', hex);
+        root.setProperty('--surface2', Utils.shiftHex(hex, Utils.isLightColor(hex) ? -0.05 : 0.08));
+        root.setProperty('--border', Utils.isLightColor(hex) ? 'rgba(0,0,0,.1)' : 'rgba(255,255,255,.1)');
+        DOM.surfacePick.value = hex; DOM.surfaceHex.value = hex;
+        State.hasCustomColors = true;
+        document.body.classList.remove('light-auto');
+        document.body.classList.add('has-custom-colors');
+      },
+
+      applyText(hex) {
+        if (!C.HEX_RE.test(hex)) return;
+        const root = document.documentElement.style;
+        root.setProperty('--text', hex);
+        root.setProperty('--text-dim', Utils.shiftHex(hex, Utils.isLightColor(hex) ? -0.35 : 0.35));
+        DOM.textPick.value = hex; DOM.textHex.value = hex;
+        State.hasCustomColors = true;
+        document.body.classList.remove('light-auto');
+        document.body.classList.add('has-custom-colors');
+      },
+
+      wireColor(pick, hexInput, applyFn) {
+        pick.addEventListener('input', () => { applyFn(pick.value); Persistence.savePrefs(); });
+        hexInput.addEventListener('input', () => {
+          let v = hexInput.value.trim();
+          if (v.length && v[0] !== '#') v = '#' + v;
+          if (C.HEX_RE.test(v)) { applyFn(v); Persistence.savePrefs(); }
+        });
+        hexInput.addEventListener('keydown', e => { if (e.key === 'Enter') hexInput.blur(); });
+      },
+
+      loadPrefs() {
+        const p = Persistence.loadPrefs();
+        if (p.theme) DOM.themeSel.value = p.theme;
+        if (p.volume != null) DOM.vol.value = p.volume;
+        if (p.bass != null) DOM.bassSlider.value = p.bass;
+        if (p.mid != null) DOM.midSlider.value = p.mid;
+        if (p.treble != null) DOM.trebleSlider.value = p.treble;
+        if (p.noise != null) DOM.noiseSlider.value = p.noise;
+        if (p.sfx !== undefined) { DOM.sfxChk.checked = p.sfx; State.effectsEnabled = p.sfx; }
+        if (p.scratch !== undefined) { DOM.scratchChk.checked = p.scratch; State.scratchMode = p.scratch; }
+        if (p.shuffle !== undefined) { State.shuffleOn = p.shuffle; UI.updateShuffleBtn(); }
+        if (p.repeat !== undefined) { State.repeatMode = p.repeat; UI.updateRepeatBtn(); }
+        if (p.rpm !== undefined) { State.currentRPM = p.rpm; UI.updateRPM(); }
+        if (p.hasCustomColors) {
+          State.hasCustomColors = true;
+          document.body.classList.add('has-custom-colors');
+          if (p.bg) Theming.applyBg(p.bg);
+          if (p.surface) Theming.applySurface(p.surface);
+          if (p.text) Theming.applyText(p.text);
+        }
+        if (p.accent) Theming.applyAccent(p.accent);
+        if (p.lightMode && !p.hasCustomColors) {
+          document.body.classList.add('light-auto');
+          DOM.modeBtn.textContent = '🌙';
+        }
+        if (DOM.themeSel.value) DOM.app.classList.add(DOM.themeSel.value);
+        if (p.albumInfo) {
+          if (p.albumInfo.artist) DOM.aboutArtist.innerText = p.albumInfo.artist;
+          if (p.albumInfo.year) DOM.aboutYear.innerText = p.albumInfo.year;
+          if (p.albumInfo.genre) DOM.aboutGenre.innerText = p.albumInfo.genre;
+          if (p.albumInfo.notes) DOM.albumNotes.innerText = p.albumInfo.notes;
+        }
+        [DOM.aboutArtist, DOM.aboutYear, DOM.aboutGenre, DOM.albumNotes].forEach(el => {
+          el.addEventListener('blur', Persistence.savePrefs);
+        });
+        DOM.songNotes.addEventListener('blur', () => {
+          const track = State.playlist[State.currentIdx];
+          if (track) {
+            track.notes = DOM.songNotes.textContent;
+            Persistence.updateTrackNotes(track.id, track.notes);
+          }
+        });
+      }
+    };
+
+    // ─── EVENTS ──────────────────────────────────────────────────
+    const Events = {
+      vinylDown(e) {
+        if (!Player.isReady() || State.armDragging) return;
+        e.preventDefault();
+        AudioEngine.ensure();
+        if (State.scratchMode) AudioEngine.startScratch();
+        else AudioEngine.playWhoosh(false);
+
+        State.vinylDragging = true;
+        State.vinylWasPlaying = State.playing;
+        DOM.vinylWrap.classList.add('dragging');
+        AudioEngine.updateParams();
+        const p = Utils.getPointer(e);
+        State.dragStartAngle = Utils.pointerAngle(DOM.vinylWrap, p.x, p.y);
+        State.dragBaseAngle = State.vinylAngle;
+        State.dragStartTime = Utils.getCurrentTime();
+        State.prevDragAngle = State.dragStartAngle;
+
+        DOM.audio.pause();
+        State.vinylVelocity = 0;
+      },
+
+      vinylMove(e) {
+        if (!State.vinylDragging) return;
+        e.preventDefault();
+        const p = Utils.getPointer(e);
+        const a = Utils.pointerAngle(DOM.vinylWrap, p.x, p.y);
+        const total = Utils.wrapDelta(a, State.dragStartAngle);
+        State.vinylAngle = State.dragBaseAngle + total;
+        Events.scrub(total);
+        State.vinylVelocity = Utils.wrapDelta(a, State.prevDragAngle) * 0.5;
+        State.prevDragAngle = a;
+        if (State.scratchMode) AudioEngine.updateScratch(State.vinylVelocity);
+      },
+
+      vinylUp() {
+        if (!State.vinylDragging) return;
+        if (State.scratchMode) AudioEngine.stopScratch();
+        else AudioEngine.playWhoosh(true);
+
+        State.vinylDragging = false;
+        DOM.vinylWrap.classList.remove('dragging');
+        AudioEngine.updateParams();
+
+        if (State.vinylWasPlaying && State.needleOn) {
+          Player.play();
+        }
+      },
+
+      scrub(totalDeg) {
+        const s = State.scratchMode ? C.SEC_PER_DEG_SCRATCH : C.SEC_PER_DEG;
+        const d = Utils.safeDuration();
+        if (d <= 0) return;
+        try { DOM.audio.currentTime = Utils.clamp(State.dragStartTime + totalDeg * s, 0, d); } catch {}
+      },
+
+      armDown(e) {
+        e.preventDefault(); e.stopPropagation();
+        AudioEngine.ensure(); AudioEngine.playClick();
+        if (State.scratchMode) AudioEngine.startScratch();
+        const pivot = Utils.getArmPivot();
+        State.armPivotX = pivot.x; State.armPivotY = pivot.y;
+        State.armDragging = true; State.armDidMove = false;
+        State.armStartAngle = Utils.readArmAngle();
+        const p = Utils.getPointer(e);
+        State.armStartPointerAngle = Events.pivotAngle(p.x, p.y);
+        State.prevArmAngle = State.armStartPointerAngle;
+        DOM.tonearm.classList.remove('smooth');
+        DOM.tonearm.classList.add('arm-dragging');
+      },
+
+      pivotAngle: (px, py) => Math.atan2(py - State.armPivotY, px - State.armPivotX) * 180 / Math.PI - 90,
+
+      armMove(e) {
+        if (!State.armDragging) return;
+        e.preventDefault();
+        State.armDidMove = true;
+        const p = Utils.getPointer(e);
+        const cur = Events.pivotAngle(p.x, p.y);
+        const vel = Utils.wrapDelta(cur, State.prevArmAngle);
+        State.prevArmAngle = cur;
+        if (State.scratchMode) AudioEngine.updateScratch(vel * 2);
+        const delta = Utils.wrapDelta(cur, State.armStartPointerAngle);
+        const angle = Utils.clamp(State.armStartAngle + delta, C.NEEDLE_OFF, C.NEEDLE_END);
+        DOM.tonearm.style.transform = `rotate(${angle}deg)`;
+        const d = Utils.safeDuration();
+        if (angle >= C.NEEDLE_START && d > 0 && Player.isReady()) {
+          if (!State.needleOn) { AudioEngine.playClunk(); State.needleOn = true; DOM.tonearm.classList.remove('off'); AudioEngine.updateParams(); }
+
+          const pct = Utils.clamp((angle - C.NEEDLE_START) / (C.NEEDLE_END - C.NEEDLE_START), 0, 1);
+          try { DOM.audio.currentTime = pct * d; } catch {}
+        } else if (State.needleOn) {
+          AudioEngine.playClunk(); State.needleOn = false;
+          DOM.tonearm.classList.add('off'); AudioEngine.updateParams();
+        }
+      },
+
+      armUp() {
+        if (!State.armDragging) return;
+        if (State.scratchMode) AudioEngine.stopScratch();
+        State.armDragging = false;
+        DOM.tonearm.classList.remove('arm-dragging');
+        DOM.tonearm.classList.add('smooth');
+        if (!State.armDidMove) {
+          if (State.needleOn) UI.setNeedle(false);
+          else if (Player.isReady()) { AudioEngine.ensure(); UI.setNeedle(true); Player.play(); }
+          return;
+        }
+        const final = Utils.readArmAngle();
+        if (final >= C.NEEDLE_START && Player.isReady()) {
+          if (!State.needleOn) { AudioEngine.playClunk(); State.needleOn = true; DOM.tonearm.classList.remove('off'); AudioEngine.updateParams(); }
+          Player.play();
+        } else {
+          if (State.needleOn) { AudioEngine.playClunk(); State.needleOn = false; DOM.tonearm.classList.add('off'); AudioEngine.updateParams(); }
+          if (State.playing) Player.stop();
+          UI.updateNeedle();
+        }
+      },
+
+      setupDragDrop() {
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+          document.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); });
+        });
+        document.addEventListener('dragenter', e => {
+          if (e.dataTransfer?.types?.includes('Files')) {
+            State.dragCounter++; DOM.dropOverlay.classList.add('active');
+          }
+        });
+        document.addEventListener('dragleave', () => {
+          State.dragCounter--;
+          if (State.dragCounter <= 0) { State.dragCounter = 0; DOM.dropOverlay.classList.remove('active'); }
+        });
+        document.addEventListener('drop', e => {
+          State.dragCounter = 0; DOM.dropOverlay.classList.remove('active');
+          const files = Array.from(e.dataTransfer?.files || []);
+          if (!files.length) return;
+          AudioEngine.ensure();
+          const audioFiles = files.filter(f => f.type.startsWith('audio/') || /\.(mp3|wav|ogg|flac|m4a|aac|opus|wma)$/i.test(f.name));
+          const imageFiles = files.filter(f => f.type.startsWith('image/'));
+          if (imageFiles.length > 0) Player.setCoverFromFile(imageFiles[0]);
+          if (audioFiles.length > 0) Player.addFiles(audioFiles);
+        });
+      },
+
+      setupKeyboard() {
+        document.addEventListener('keydown', e => {
+          if (e.target.isContentEditable || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+          switch (e.key) {
+            case ' ':
+              e.preventDefault();
+              AudioEngine.ensure(); AudioEngine.playClick();
+              if (!Player.isReady()) return;
+              if (State.playing) Player.stop();
+              else { if (State.currentIdx < 0) Player.loadTrack(0); Player.play(); }
+              break;
+            case 'ArrowLeft':
+              e.preventDefault();
+              if (State.trackLoaded) {
+                try {
+                  const ct = DOM.audio.currentTime;
+                  if (ct > 3) DOM.audio.currentTime = Math.max(0, ct - 5);
+                  else { const wasP = State.playing; Player.stop(); Player.loadTrack(Player.getPrevIdx()); if (wasP) Player.play(); }
+                } catch {}
+              }
+              break;
+            case 'ArrowRight':
+              e.preventDefault();
+              if (State.trackLoaded) {
+                try { DOM.audio.currentTime = Math.min(Utils.safeDuration(), DOM.audio.currentTime + 5); } catch {}
+              }
+              break;
+            case 'ArrowUp':
+              e.preventDefault();
+              DOM.vol.value = Math.min(1, parseFloat(DOM.vol.value) + 0.05);
+              DOM.vol.dispatchEvent(new Event('input'));
+              break;
+            case 'ArrowDown':
+              e.preventDefault();
+              DOM.vol.value = Math.max(0, parseFloat(DOM.vol.value) - 0.05);
+              DOM.vol.dispatchEvent(new Event('input'));
+              break;
+            case 's': case 'S':
+              DOM.shuffleBtn.click();
+              break;
+            case 'r': case 'R':
+              DOM.repeatBtn.click();
+              break;
+            case 'f': case 'F':
+              DOM.focusBtn.click();
+              break;
+            case 'Escape':
+              if (DOM.app.classList.contains('focus')) {
+                DOM.focusBtn.click();
+              }
+              break;
+          }
+        });
+      },
+
+      setupGlobal() {
+        document.addEventListener('pointermove', e => {
+          Events.vinylMove(e); Events.armMove(e);
+          UI.updateHighlight(e.clientX, e.clientY);
+        });
+        const up = () => { Events.vinylUp(); Events.armUp(); };
+        document.addEventListener('pointerup', up);
+        document.addEventListener('pointercancel', up);
+      },
+
+      setupControls() {
+        DOM.playBtn.addEventListener('click', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          if (!Player.isReady()) return;
+          if (State.playing) { Player.stop(); return; }
+          if (State.currentIdx < 0) Player.loadTrack(0);
+          Player.play();
+        });
+
+        const prevAction = () => {
+          AudioEngine.ensure(); AudioEngine.playClick(); UI.bumpTurntable();
+          if (!State.playlist.length) return;
+          const wasPlaying = State.playing;
+          try { if (DOM.audio.currentTime > 3 && State.currentIdx >= 0) { DOM.audio.currentTime = 0; return; } } catch {}
+          Player.stop();
+          Player.loadTrack(Player.getPrevIdx());
+          if (wasPlaying) Player.play();
+        };
+        DOM.prevBtn.addEventListener('click', prevAction);
+
+        const nextAction = () => {
+          AudioEngine.ensure(); AudioEngine.playClick(); UI.bumpTurntable();
+          if (!State.playlist.length) return;
+          const wasPlaying = State.playing;
+          Player.stop();
+          const nextIdx = State.shuffleOn && State.shuffleQueue.length > 0
+            ? Player.getNextIdx()
+            : (State.currentIdx < State.playlist.length - 1 ? State.currentIdx + 1 : 0);
+          Player.loadTrack(nextIdx >= 0 ? nextIdx : 0);
+          if (wasPlaying) Player.play();
+        };
+        DOM.nextBtn.addEventListener('click', nextAction);
+
+        DOM.shuffleBtn.addEventListener('click', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          State.shuffleOn = !State.shuffleOn;
+          if (State.shuffleOn) Player.rebuildShuffleQueue();
+          UI.updateShuffleBtn();
+          Persistence.savePrefs();
+        });
+
+        DOM.repeatBtn.addEventListener('click', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          State.repeatMode = (State.repeatMode + 1) % 3;
+          UI.updateRepeatBtn();
+          Persistence.savePrefs();
+        });
+
+        DOM.rpmSel.addEventListener('change', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          State.currentRPM = parseInt(DOM.rpmSel.value);
+          UI.updateRPM();
+          if (State.playing) State.vinylVelocity = Utils.rpmConfig().visual;
+          Persistence.savePrefs();
+        });
+
+        DOM.coverIn.addEventListener('change', e => {
+          const f = e.target.files[0];
+          if (f) Player.setCoverFromFile(f);
+          DOM.coverIn.value = '';
+        });
+
+        DOM.audioIn.addEventListener('change', e => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          if (e.target.files.length) Player.addFiles(Array.from(e.target.files));
+          DOM.audioIn.value = '';
+        });
+
+        const eqPairs = [[DOM.bassSlider, DOM.bassLabel],[DOM.midSlider, DOM.midLabel],[DOM.trebleSlider, DOM.trebleLabel]];
+        eqPairs.forEach(([slider, label]) => {
+          slider.addEventListener('input', () => {
+            AudioEngine.ensure(); AudioEngine.updateParams();
+            UI.flashEQ(label); Persistence.savePrefs();
+          });
+        });
+
+        DOM.vol.addEventListener('input', () => {
+          AudioEngine.ensure();
+          AudioEngine.updateParams();
+          Persistence.savePrefs();
+        });
+
+        DOM.noiseSlider.addEventListener('input', () => {
+          AudioEngine.ensure(); AudioEngine.updateParams(); Persistence.savePrefs();
+        });
+
+        DOM.sfxChk.addEventListener('change', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          State.effectsEnabled = DOM.sfxChk.checked;
+          Persistence.savePrefs();
+        });
+        DOM.scratchChk.addEventListener('change', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          State.scratchMode = DOM.scratchChk.checked;
+          Persistence.savePrefs();
+        });
+
+        DOM.themeSel.addEventListener('change', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          DOM.app.classList.remove('theme-wood', 'theme-clear');
+          if (DOM.themeSel.value) DOM.app.classList.add(DOM.themeSel.value);
+          Persistence.savePrefs();
+        });
+
+        DOM.modeBtn.addEventListener('click', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          if (State.hasCustomColors) {
+            DOM.hint.textContent = 'Reset custom colours to use light/dark toggle';
+            return;
+          }
+          document.body.classList.toggle('light-auto');
+          DOM.modeBtn.textContent = document.body.classList.contains('light-auto') ? '🌙' : '☀';
+          Persistence.savePrefs();
+        });
+
+        DOM.focusBtn.addEventListener('click', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          const on = DOM.app.classList.toggle('focus');
+          DOM.focusBtn.textContent = on ? '⛶ Exit Focus' : '⛶ Focus';
+          DOM.focusBtn.classList.toggle('on', on);
+        });
+
+        DOM.fcPlay.addEventListener('click', () => { DOM.playBtn.click(); });
+        DOM.fcPrev.addEventListener('click', prevAction);
+        DOM.fcNext.addEventListener('click', nextAction);
+        DOM.fcExit.addEventListener('click', () => {
+          DOM.app.classList.remove('focus');
+          DOM.focusBtn.textContent = '⛶ Focus';
+          DOM.focusBtn.classList.remove('on');
+        });
+
+        DOM.fcSeek.addEventListener('click', e => {
+          const rect = DOM.fcSeek.getBoundingClientRect();
+          const pct = Utils.clamp((e.clientX - rect.left) / rect.width, 0, 1);
+          const d = Utils.safeDuration();
+          if (d > 0) {
+            try { DOM.audio.currentTime = pct * d; } catch {}
+          }
+        });
+
+        DOM.aboutToggle.addEventListener('click', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          const isOpen = DOM.aboutWrap.classList.toggle('open');
+          DOM.aboutToggle.setAttribute('aria-expanded', isOpen);
+        });
+
+        DOM.liftArmBtn.addEventListener('click', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          if (State.needleOn) {
+            UI.setNeedle(false);
+          } else if (Player.isReady()) {
+            UI.setNeedle(true);
+            Player.play();
+          }
+        });
+
+        DOM.vinylWrap.addEventListener('pointerdown', Events.vinylDown);
+        DOM.tonearm.addEventListener('pointerdown', Events.armDown);
+      },
+
+      setupAudio() {
+        DOM.audio.addEventListener('ended', Player.onTrackEnd);
+      }
+    };
+
+    // ─── ANIMATION ───────────────────────────────────────────────
+    const Animation = {
+      tick(ts) {
+        const dt = State.lastTimestamp ? Math.min(ts - State.lastTimestamp, 50) : 16.67;
+        State.lastTimestamp = ts;
+        const scale = dt / 16.67;
+
+        if (!State.vinylDragging) {
+          if (State.playing && State.needleOn) {
+            State.vinylVelocity = Utils.rpmConfig().visual;
+          } else {
+            State.vinylVelocity *= C.VINYL_FRICTION;
+            if (Math.abs(State.vinylVelocity) < C.VINYL_MIN_VEL) State.vinylVelocity = 0;
+          }
+          State.vinylAngle += State.vinylVelocity * scale;
+        }
+
+        DOM.vinyl.style.transform = `rotate(${State.vinylAngle}deg)`;
+
+        if (Player.isReady()) {
+          const d = Utils.safeDuration();
+          const ct = Utils.getCurrentTime() || 0;
+          const timeStr = `${Utils.formatTime(ct)} / ${Utils.formatTime(d)}`;
+          DOM.time.textContent = timeStr;
+          DOM.fcTime.textContent = Utils.formatTime(ct);
+          DOM.fcDur.textContent = Utils.formatTime(d);
+
+          if (d > 0) {
+            const pct = (ct / d) * 100;
+            DOM.fcSeekFill.style.width = pct + '%';
+          }
+
+          UI.updateNeedle();
+
+          if (State.currentIdx !== State.lastRenderIdx) {
+            State.lastRenderIdx = State.currentIdx;
+            const lis = DOM.tracklistOl.children;
+            for (let i = 0; i < lis.length; i++) lis[i].classList.toggle('active', i === State.currentIdx);
+          }
+        }
+
+        if (State.playing && State.needleOn && State.analyser) {
+          const level = AudioEngine.getBassLevel();
+          UI.drawBassRing(level);
+        } else if (!State.playing) {
+          const ctx = DOM.bassCanvas.getContext('2d');
+          ctx.clearRect(0, 0, C.BASS_CANVAS_SIZE, C.BASS_CANVAS_SIZE);
+        }
+
+        requestAnimationFrame(Animation.tick);
+      }
+    };
+
+    // ─── INITIALIZATION ──────────────────────────────────────────
+    const init = async () => {
+      initDOM();
+      Theming.loadPrefs();
+      Theming.wireColor(DOM.accentPick, DOM.accentHex, Theming.applyAccent);
+      Theming.wireColor(DOM.bgPick, DOM.bgHex, Theming.applyBg);
+      Theming.wireColor(DOM.surfacePick, DOM.surfaceHex, Theming.applySurface);
+      Theming.wireColor(DOM.textPick, DOM.textHex, Theming.applyText);
+      Events.setupControls();
+      Events.setupAudio();
+      Events.setupGlobal();
+      Events.setupDragDrop();
+      Events.setupKeyboard();
+
+      const prefs = Persistence.loadPrefs();
+      if (!prefs.hasCustomColors && prefs.lightMode === undefined) {
+        if (window.matchMedia?.('(prefers-color-scheme: light)').matches) {
+          document.body.classList.add('light-auto');
+          DOM.modeBtn.textContent = '🌙';
+        }
+      }
+
+      try {
+        await Persistence.openDB();
+        await Player.restoreTracks();
+        const coverUrl = await Persistence.loadCover();
+        if (coverUrl) UI.setCoverFromDataUrl(coverUrl);
+      } catch (e) { console.warn('DB init failed:', e); }
+
+      UI.renderTracklist();
+      UI.renderSongInfo(null);
+      UI.updateShuffleBtn();
+      UI.updateRepeatBtn();
+
+      window.addEventListener('beforeunload', () => {
+        State.playlist.forEach(t => { try { URL.revokeObjectURL(t.url); } catch {} });
+        if (State.coverUrl) try { URL.revokeObjectURL(State.coverUrl); } catch {}
+      });
+
+      requestAnimationFrame(Animation.tick);
+    };
+
+    init();
+  })();
+  </script>
+</body>
+</html>
