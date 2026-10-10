@@ -100,7 +100,7 @@ Your library and settings from the original Vinyl-Player carry over when this pa
 
 - Tracks longer than 20 minutes, and files the browser cannot decode into memory, play through the plain media element. They still follow platter speed and pitch, but they scrub silently, cannot play backwards and do not get wow and flutter. In Safari that path cannot glide: the music starts once the platter is at speed and stops when the motor is switched off.
 - A decoded track is held as 16-bit samples: about 0.18 MB of memory per second of stereo audio, and twice that for a moment while it is being decoded. Only the current track and the next one are held.
-- Above 33⅓ rpm the sped-up audio is smoothed by a simple averaging filter. Measured: a 20 kHz tone played at 78 folds back 30 dB quieter than without it, and at 45 it costs 0.7 dB at 13.5 kHz.
+- Above 33⅓ rpm the sped-up audio is smoothed by a simple averaging filter. Measured: a 20 kHz tone played at 78 folds back 30 dB quieter than without it, and at 45 it costs 0.7 dB at 13.5 kHz (both measured in Chromium).
 - Tags and cover art are read from MP3 (ID3 v1, v2.3, v2.4), FLAC and M4A/MP4 files. Other formats play, without tags. Tags are read when a file is added, so tracks saved before this was supported keep their file names.
 - The flip is drawn flat (the record turns edge-on and back), without perspective.
 - Lock-screen controls depend on the browser: while the audio engine plays a decoded track, some browsers show no media controls.
