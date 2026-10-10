@@ -94,7 +94,7 @@ Drag audio files or a cover image onto the page to add them.
 
 Everything stays on your device. Audio files, cover art and notes are stored in your browser's IndexedDB (`vinyl-db`); settings are in `localStorage`. The page makes no network requests.
 
-Your library and settings from the original Vinyl-Player carry over when this page is served from the same address as the original was. New settings are stored under a separate key (`vinyl-deck`), so the original keeps working beside it.
+Your library and settings from the original Vinyl-Player carry over when this page is served from the same address as the original was. New settings are stored under a separate key (`vinyl-deck`), so the original keeps working beside it. The two share the saved library: when this page reads tags the original could not, a track that had none may get its tag title as its name, and the original then shows that name too.
 
 ## Limits
 

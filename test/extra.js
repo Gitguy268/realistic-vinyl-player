@@ -208,9 +208,16 @@ function wav(seconds, sr, fill) {
     await offKeys(ctx);
     p = await ctx.newPage(); await p.goto(url + '?demo&debug'); await p.waitForTimeout(900);
     await p.click('#playBtn'); await p.waitForTimeout(4200);
-    const sink = () => p.evaluate(() => { const { State, Settings } = window.__deck, a = State.sink; return { bg: Settings.v.background, playing: !!a && !a.paused, t: a ? a.currentTime : 0 }; });
+    const sink = () => p.evaluate(() => { const { State, Settings } = window.__deck, a = State.sink; return { bg: Settings.v.background, playing: !!a && !a.paused, t: a ? a.currentTime : 0, routed: State.routed }; });
     const s1 = await sink(); await p.waitForTimeout(1000); const s2 = await sink();
-    check('phone: background playback is on and its media element is running', s1.bg === true && s2.playing && s2.t - s1.t > 0.7, `on ${s1.bg}, element clock ${s1.t.toFixed(1)} → ${s2.t.toFixed(1)} s`);
+    check('phone: background playback is on and its media element is running', s1.bg === true && s2.playing && s2.routed === 'sink' && s2.t - s1.t > 0.7, `on ${s1.bg}, mix to ${s2.routed}, element clock ${s1.t.toFixed(1)} → ${s2.t.toFixed(1)} s`);
+    // a phone that refuses to start that element must still be heard
+    await p.close(); p = await ctx.newPage();
+    await p.addInitScript(() => { const play = HTMLMediaElement.prototype.play; HTMLMediaElement.prototype.play = function () { return this.srcObject ? Promise.reject(new DOMException('refused', 'NotAllowedError')) : play.call(this); }; });
+    await p.goto(url + '?demo&debug'); await p.waitForTimeout(900);
+    await p.click('#playBtn'); await p.waitForTimeout(1500);
+    const s3 = await sink();
+    check('…and if the phone refuses that element, the mix goes to the speakers instead', s3.bg === true && s3.routed === 'speakers' && !s3.playing, `mix to ${s3.routed}`);
     await ctx.close();
   }
 
