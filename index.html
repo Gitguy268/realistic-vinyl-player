@@ -1305,6 +1305,7 @@
       /** localStorage keys */
       PREFS_KEY: 'vinyl-prefs',
       TRACKS_KEY: 'vinyl-tracks',
+      TAG_VERSION: 2,         // raise it when a tag reader is added: saved tracks are then read once more
       DECK_KEY: 'vinyl-deck',     // new settings live here; the two keys above keep their original shape
       /** Regex for validating hex color codes */
       HEX_RE: /^#[0-9a-f]{6}$/i,
@@ -1628,7 +1629,7 @@
       }
     };
 
-    // ─── TAGS: FLAC and MP4 files, ID3 for everything else ───────
+    // ─── TAGS: FLAC, MP4, Ogg and WAV files, ID3 for everything else ──
     const Tags = {
       /** Same result shape as ID3.parse, whatever the container. A damaged file just has no tags. */
       parse(buf) {
@@ -1638,6 +1639,8 @@
           const skip = b.length > 10 && Tags._is(b, 0, 'ID3') ? 10 + ID3._syncsafe(new DataView(buf), 6) : 0;
           if (Tags._is(b, skip, 'fLaC')) return Tags._flac(b, skip + 4);
           if (Tags._is(b, 4, 'ftyp')) return Tags._mp4(b);
+          if (Tags._is(b, 0, 'OggS')) return Tags._ogg(b);
+          if (Tags._is(b, 0, 'RIFF') && Tags._is(b, 8, 'WAVE')) return Tags._wav(b);
         } catch {}
         return ID3.parse(buf);
       },
@@ -1646,36 +1649,98 @@
       _is: (b, at, s) => at + s.length <= b.length && [...s].every((ch, i) => b[at + i] === ch.charCodeAt(0)),
       _u32: (b, p) => ((b[p] << 24) | (b[p + 1] << 16) | (b[p + 2] << 8) | b[p + 3]) >>> 0,
 
-      /** FLAC metadata blocks: Vorbis comments (little-endian lengths) and pictures (big-endian). */
-      _flac(b, p) {
-        const r = Tags._blank(), dv = new DataView(b.buffer, b.byteOffset, b.byteLength), td = new TextDecoder();
+      /** Vorbis comments (FLAC, Ogg Vorbis, Opus), from the vendor string on: KEY=value pairs, little-endian lengths. */
+      _vorbis(b, p, end, r) {
+        const dv = new DataView(b.buffer, b.byteOffset, b.byteLength), td = new TextDecoder();
         const want = { TITLE: 'title', ARTIST: 'artist', ALBUM: 'album', DATE: 'year', GENRE: 'genre' };
+        let q = p + 4 + dv.getUint32(p, true);                           // skip the vendor string
+        const n = dv.getUint32(q, true); q += 4;
+        for (let i = 0; i < n && q + 4 <= end; i++) {
+          const l = dv.getUint32(q, true); q += 4;
+          if (q + l > end) break;
+          // read the key first: an embedded cover is megabytes of base64 that should not be decoded as text twice
+          const head = td.decode(b.subarray(q, Math.min(q + l, q + 32))), eq = head.indexOf('='), name = head.slice(0, eq).toUpperCase();
+          const value = () => td.decode(b.subarray(q + eq + 1, q + l));
+          if (name === 'METADATA_BLOCK_PICTURE') {                        // Ogg carries the cover as a base64 FLAC picture block
+            try { const pic = Uint8Array.from(atob(value()), ch => ch.charCodeAt(0)); Tags._picture(pic, 0, pic.length, r); } catch {}
+          } else if (want[name] && !r[want[name]]) r[want[name]] = want[name] === 'year' ? value().slice(0, 4) : value();
+          q += l;
+        }
+      },
+
+      /** A FLAC picture block (big-endian). The front cover wins over any other picture. */
+      _picture(b, p, end, r) {
+        const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+        const kind = dv.getUint32(p);                                    // 3 = front cover
+        const ml = dv.getUint32(p + 4);
+        const mime = new TextDecoder().decode(b.subarray(p + 8, p + 8 + ml));
+        let q = p + 8 + ml;
+        q += 4 + dv.getUint32(q);                                        // description
+        q += 16;                                                         // width, height, depth, colours
+        const dl = dv.getUint32(q); q += 4;
+        if (q + dl <= end && (!r.coverBlob || kind === 3)) r.coverBlob = new Blob([b.slice(q, q + dl)], { type: /^image\/(jpeg|png|gif|webp)$/.test(mime) ? mime : 'image/jpeg' });
+      },
+
+      /** FLAC metadata blocks: type 4 holds the comments, type 6 a picture. */
+      _flac(b, p) {
+        const r = Tags._blank();
         for (let last = false; !last && p + 4 <= b.length;) {
           const type = b[p] & 0x7f, len = (b[p + 1] << 16) | (b[p + 2] << 8) | b[p + 3], end = p + 4 + len;
           last = !!(b[p] & 0x80); p += 4;
           if (end > b.length) break;
-          if (type === 4) {
-            let q = p + 4 + dv.getUint32(p, true);                       // skip the vendor string
-            const n = dv.getUint32(q, true); q += 4;
-            for (let i = 0; i < n && q + 4 <= end; i++) {
-              const l = dv.getUint32(q, true); q += 4;
-              if (q + l > end) break;
-              const s = td.decode(b.subarray(q, q + l)), eq = s.indexOf('='), key = want[s.slice(0, eq).toUpperCase()];
-              q += l;
-              if (key && !r[key]) r[key] = key === 'year' ? s.slice(eq + 1, eq + 5) : s.slice(eq + 1);
-            }
-          } else if (type === 6) {
-            let q = p;
-            const kind = dv.getUint32(q); q += 4;                        // 3 = front cover
-            const ml = dv.getUint32(q); q += 4;
-            const mime = td.decode(b.subarray(q, q + ml)); q += ml;
-            q += 4 + dv.getUint32(q);                                    // description
-            q += 16;                                                     // width, height, depth, colours
-            const dl = dv.getUint32(q); q += 4;
-            if (q + dl <= end && (!r.coverBlob || kind === 3)) r.coverBlob = new Blob([b.slice(q, q + dl)], { type: /^image\/(jpeg|png|gif|webp)$/.test(mime) ? mime : 'image/jpeg' });
-          }
+          if (type === 4) Tags._vorbis(b, p, end, r);
+          else if (type === 6) Tags._picture(b, p, end, r);
           p = end;
         }
+        return r;
+      },
+
+      /** Ogg Vorbis and Opus: the comments are the stream's second packet, which may run over several pages. */
+      _ogg(b) {
+        const r = Tags._blank(), parts = [];
+        let p = 0, packet = 0, size = 0;
+        while (packet < 2 && p + 27 <= b.length && Tags._is(b, p, 'OggS')) {
+          const nseg = b[p + 26];
+          let q = p + 27 + nseg;                                         // the page's data follows its segment table
+          for (let i = 0; i < nseg; i++) {
+            const len = b[p + 27 + i];
+            if (packet === 1) { parts.push(b.subarray(q, q + len)); size += len; }
+            q += len;
+            if (len < 255) packet++;                                     // a segment shorter than 255 bytes ends its packet
+          }
+          p = q;
+        }
+        const c = new Uint8Array(size);
+        parts.reduce((at, part) => (c.set(part, at), at + part.length), 0);
+        if (Tags._is(c, 0, '\x03vorbis')) Tags._vorbis(c, 7, c.length, r);
+        else if (Tags._is(c, 0, 'OpusTags')) Tags._vorbis(c, 8, c.length, r);
+        return r;
+      },
+
+      /** WAV: a LIST/INFO chunk, or an ID3 block carried in an 'id3 ' chunk (which wins). Sizes are little-endian. */
+      _wav(b) {
+        const r = Tags._blank(), dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+        const want = { INAM: 'title', IART: 'artist', IPRD: 'album', ICRD: 'year', IGNR: 'genre' };
+        // INFO text predates Unicode: take it as UTF-8 when it is valid UTF-8, as Windows Latin otherwise
+        const text = u => { try { return new TextDecoder('utf-8', { fatal: true }).decode(u); } catch { return new TextDecoder('windows-1252').decode(u); } };
+        const each = (p, end, fn) => {
+          while (p + 8 <= end) {
+            const size = dv.getUint32(p + 4, true);
+            fn(String.fromCharCode(b[p], b[p + 1], b[p + 2], b[p + 3]), p + 8, Math.min(end, p + 8 + size));
+            p += 8 + size + (size & 1);                                  // chunks are padded to an even length
+          }
+        };
+        let id3 = null;
+        each(12, b.length, (id, s, e) => {
+          if (id === 'LIST' && Tags._is(b, s, 'INFO')) {
+            each(s + 4, e, (key, s2, e2) => {
+              if (!want[key] || r[want[key]]) return;
+              const v = text(b.subarray(s2, e2)).replace(/\0[^]*$/, '').trim();
+              r[want[key]] = want[key] === 'year' ? v.slice(0, 4) : v;
+            });
+          } else if (id.toLowerCase() === 'id3 ') id3 = ID3.parse(b.slice(s, e).buffer);
+        });
+        if (id3) for (const k in id3) if (id3[k]) r[k] = id3[k];
         return r;
       },
 
@@ -3226,7 +3291,8 @@
             year: meta?.year || '',
             genre: meta?.genre || '',
             notes: meta?.notes || '',
-            coverDataUrl: meta?.coverDataUrl || ''
+            coverDataUrl: meta?.coverDataUrl || '',
+            tagv: C.TAG_VERSION
           });
           tx.oncomplete = () => resolve();
           tx.onerror = () => resolve();
@@ -3249,6 +3315,24 @@
       }),
 
       updateTrackNotes: (id, notes) => Persistence.patchTrack(id, { notes }),
+
+      /** A track saved before its format's tags could be read gets one more look. Only what it lacks is filled in. */
+      async retag(row, entry) {
+        const meta = Tags.parse(row.buffer), patch = { tagv: C.TAG_VERSION };
+        const bare = !row.artist && !row.album && !row.year && !row.genre && !row.coverDataUrl;   // no tags so far: its name is its file name
+        if (bare && meta.title) patch.name = meta.title;
+        for (const k of ['artist', 'album', 'year', 'genre']) if (!row[k] && meta[k]) patch[k] = meta[k];
+        if (!row.coverDataUrl && meta.coverBlob) { try { patch.coverDataUrl = await Utils.blobToDataUrl(meta.coverBlob); } catch {} }
+        await Persistence.patchTrack(row.id, patch);
+        if (Object.keys(patch).length < 2) return;
+        Object.assign(entry, patch);
+        UI.renderTracklist();
+        if (entry === State.playlist[State.currentIdx]) {
+          DOM.hint.textContent = entry.artist ? `${entry.artist} — ${entry.name}` : entry.name;
+          UI.renderSongInfo(entry);
+          if (entry.coverDataUrl) UI.setCoverFromDataUrl(entry.coverDataUrl);
+        }
+      },
 
       deleteTrack: id => new Promise(resolve => {
         if (!State.db) return resolve();
@@ -3707,6 +3791,7 @@
             rms: r.rms || null
           };
           State.playlist.push(entry);
+          if (r.tagv !== C.TAG_VERSION) Persistence.retag(r, entry);
           entry.durP = Player.probeDuration(url).then(d => {
             entry.duration = d;
             UI.renderTracklist();
@@ -4501,6 +4586,13 @@
       const qt = Tags.parse(cat(atom('ftyp', 'qt  '), atom('moov', atom('meta', atom('hdlr', be(0)), ilst))).buffer);
       pass = ok(qt.title === 'Red', 'MP4 tags, QuickTime layout') && pass;
       pass = ok(Tags.parse(cat('fLaC', [4, 0, 0, 9], 'x').buffer).title === '', 'truncated FLAC has no tags') && pass;
+      const big = cat('OpusTags', le(4), 'test', le(3), ...['TITLE=Green', 'artist=Cy', 'METADATA_BLOCK_PICTURE=' + btoa(String.fromCharCode(...pic)) + '='.repeat(0)].flatMap(s => [le(s.length), s]), 'x'.repeat(300));
+      const page = (segs, data) => cat('OggS', [0, 0], be(0), be(0), be(1), be(0), be(0), [segs.length], segs, data);
+      const ogg = Tags.parse(cat(page([19], cat('OpusHead', be(0), be(0), [0, 0, 0])), page([255], big.subarray(0, 255)), page([big.length - 255], big.subarray(255))).buffer);
+      pass = ok(ogg.title === 'Green' && ogg.artist === 'Cy' && ogg.coverBlob && ogg.coverBlob.type === 'image/png' && ogg.coverBlob.size === 3, 'Ogg tags, comment packet over two pages') && pass;
+      const chunk = (id, ...body) => { const d = cat(...body); return cat(id, le(d.length), d, d.length & 1 ? [0] : []); };
+      const wav = Tags.parse(cat('RIFF', le(0), 'WAVE', chunk('fmt ', be(0)), chunk('data', [1, 2, 3]), chunk('LIST', 'INFO', chunk('INAM', 'Grey\0'), chunk('IART', [0x42, 0xE9, 0]), chunk('ICRD', '1999-01-01'))).buffer);
+      pass = ok(wav.title === 'Grey' && wav.artist === 'B\xE9' && wav.year === '1999', 'WAV INFO tags, Latin text') && pass;
       console.log(pass ? 'selftest ok' : 'selftest FAILED');
       return pass;
     }

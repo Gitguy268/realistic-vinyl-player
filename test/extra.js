@@ -60,6 +60,30 @@ function wav(seconds, sr, fill) {
   check('no uncaught exceptions (undecodable file)', real.length === 0, p.errs.join(' | ').slice(0, 200));
   await p.context().close();
 
+  // ── tags: read when a file is added, and once more for a track that was saved before its format was supported ──
+  const u32 = n => { const x = Buffer.alloc(4); x.writeUInt32LE(n); return x; };
+  const comments = ['TITLE=Blue', 'ARTIST=Ann', 'DATE=1971-05-01'];
+  const vc = Buffer.concat([u32(4), Buffer.from('test'), u32(comments.length), ...comments.flatMap(c => [u32(c.length), Buffer.from(c)])]);
+  const tagged = path.join(dir, 'Old.flac');                      // tags only: it does not need to play
+  fs.writeFileSync(tagged, Buffer.concat([Buffer.from('fLaC'), Buffer.from([0, 0, 0, 2, 0, 0]), Buffer.from([0x84, 0, 0, vc.length]), vc]));
+  p = await open('?debug');
+  const first = () => p.evaluate(() => { const t = window.__deck.State.playlist[0]; return t ? `${t.name} / ${t.artist} / ${t.year}` : 'none'; });
+  await p.setInputFiles('#audioIn', tagged); await p.waitForTimeout(1200);
+  check('FLAC tags are read when the file is added', (await first()) === 'Blue / Ann / 1971', await first());
+  await p.evaluate(() => new Promise(done => {                     // make the saved row look as it did before FLAC was supported
+    const open = indexedDB.open('vinyl-db');
+    open.onsuccess = () => {
+      const db = open.result, tx = db.transaction('tracks', 'readwrite'), store = tx.objectStore('tracks'), all = store.getAll();
+      all.onsuccess = () => all.result.forEach(r => { r.name = 'Old'; r.artist = ''; r.year = ''; delete r.tagv; store.put(r); });
+      tx.oncomplete = () => { db.close(); done(); };
+    };
+  }));
+  await p.reload(); await p.waitForTimeout(1500);
+  check('…and a track saved without them gets them on the next start', (await first()) === 'Blue / Ann / 1971', await first());
+  await p.reload(); await p.waitForTimeout(1200);
+  check('…for good', (await first()) === 'Blue / Ann / 1971', await first());
+  await p.context().close();
+
   // ── hidden tab: no frames drawn, playback logic still advances ──
   p = await open('?demo&debug');
   await p.evaluate(() => { const e = document.getElementById('noiseSlider'); e.value = 0; e.dispatchEvent(new Event('input')); });
