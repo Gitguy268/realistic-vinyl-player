@@ -17,14 +17,17 @@ for (const [, attrs, code] of scripts) {
   try { new vm.Script(code, { filename: 'index.html <script>' }); } catch (e) { bad('index.html', 'script does not parse: ' + e.message); }
 }
 // xmlns namespaces in inline SVG are identifiers, not requests
-const outside = html.replace(/https?:\/\/www\.w3\.org\/(2000\/svg|1999\/xhtml|1999\/xlink)/g, '').match(/(https?:)?\/\/[a-z0-9-]+\.[a-z]{2,}[^\s"'<>)]*/gi) || [];
+// link-preview tags hold addresses for crawlers; the page does not request them
+const outside = html.replace(/<meta property="og:[^>]*>/g, '').replace(/https?:\/\/www\.w3\.org\/(2000\/svg|1999\/xhtml|1999\/xlink)/g, '').match(/(https?:)?\/\/[a-z0-9-]+\.[a-z]{2,}[^\s"'<>)]*/gi) || [];
 for (const u of new Set(outside)) bad('index.html', 'reference to an outside address: ' + u);
 html.split('\n').forEach((line, i) => {
   if (/\b(TODO|FIXME|XXX)\b|\bdebugger\b/.test(line)) bad(`index.html:${i + 1}`, 'leftover marker: ' + line.trim().slice(0, 80));
   if (/console\.(log|debug|info)\(/.test(line) && !/selftest/.test(line)) bad(`index.html:${i + 1}`, 'debug output: ' + line.trim().slice(0, 80));
   if (/\b(fetch|XMLHttpRequest|WebSocket|sendBeacon|EventSource)\s*\(/.test(line)) bad(`index.html:${i + 1}`, 'network call: ' + line.trim().slice(0, 80));
 });
-for (const need of ['<title>', 'name="description"', 'rel="icon"', 'name="viewport"', 'lang=']) if (!html.includes(need)) bad('index.html', 'missing ' + need);
+for (const need of ['<title>', 'name="description"', 'rel="icon"', 'name="viewport"', 'lang=', 'og:image']) if (!html.includes(need)) bad('index.html', 'missing ' + need);
+const preview = (html.match(/og:image" content="https:\/\/gitguy268\.github\.io\/realistic-vinyl-player\/([^"]+)"/) || [])[1];
+if (!preview || !fs.existsSync(path.join(root, preview))) bad('index.html', 'og:image does not point at a file in this repository');
 for (const [img] of html.matchAll(/<img\b[^>]*>/g)) if (!/\balt=/.test(img)) bad('index.html', 'image without alt text: ' + img.slice(0, 80));
 
 // ── links in the docs ──

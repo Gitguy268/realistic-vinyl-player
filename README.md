@@ -130,13 +130,17 @@ All tunable physical constants (record dimensions, spin-up and coast times, wow 
 
 ## Deploy
 
-The site is static. Every push to `main` runs `.github/workflows/pages.yml`, which copies `index.html`, `llms.txt` and `sitemap.xml` into `_site/` and publishes that folder to GitHub Pages. To set it up on a fork: Settings → Pages → Source: GitHub Actions, and keep "Enforce HTTPS" on.
+The site is static. Every push to `main` runs `.github/workflows/pages.yml`, which copies `index.html`, `llms.txt`, `sitemap.xml` and `screenshots/` into `_site/` and publishes that folder to GitHub Pages. To set it up on a fork: Settings → Pages → Source: GitHub Actions, and keep "Enforce HTTPS" on.
 
 For a custom domain, add a `CNAME` file with the domain to the published folder (copy it in the `build` script in `test/package.json`) and set the domain under Settings → Pages.
 
 ## Contributing
 
 Bug reports, ideas and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first; it covers how to run the checks and the few rules that keep the player a single offline file. Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report security problems privately, as described in [SECURITY.md](SECURITY.md).
+
+## Changes
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## Licence and attributions
 
