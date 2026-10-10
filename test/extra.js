@@ -94,6 +94,17 @@ function wav(seconds, sr, fill) {
   check('no console errors (hidden tab, repeat, shuffle)', p.errs.length === 0, p.errs.join(' | '));
   await p.context().close();
 
+  // ── phone, focus mode: the deck and the floating bar fit the screen ──
+  if (name !== 'firefox') {                                       // Playwright's Firefox has no mobile emulation
+    const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    p = await ctx.newPage(); await p.goto(url + '?demo'); await p.waitForTimeout(900);
+    await p.evaluate(() => document.getElementById('focusBtn').click()); await p.waitForTimeout(700);
+    const wide = await p.evaluate(() => [...document.querySelectorAll('body *')].filter(el => { const r = el.getBoundingClientRect(); return r.width && (r.right > 390.5 || r.left < -0.5); }).map(el => el.id || el.className));
+    const sw = await p.evaluate(() => document.documentElement.scrollWidth);
+    check('phone focus mode: nothing is wider than the screen', wide.length === 0 && sw <= 390, `scroll width ${sw}` + (wide.length ? ', sticking out: ' + wide.slice(0, 4).join(', ') : ''));
+    await ctx.close();
+  }
+
   console.log(`\n${name}: ${pass} passed, ${fail} failed`);
   await b.close();
   process.exitCode = fail ? 1 : 0;

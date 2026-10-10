@@ -7,7 +7,7 @@
     "build": "rm -rf ../_site && mkdir ../_site && cp ../index.html ../llms.txt ../sitemap.xml ../_site/",
     "test": "for b in chromium firefox webkit; do node verify.js $b && node extra.js $b || exit 1; done",
     "test:quick": "node verify.js chromium && node extra.js chromium",
-    "test:audio": "for b in chromium firefox webkit; do node audio.js $b; node elpath.js $b; done; node wear.js; node reduced.js",
+    "test:audio": "for b in chromium firefox webkit; do node audio.js $b; node elpath.js $b; node alias.js $b; done; node wear.js; node reduced.js",
     "parity": "[ -n \"$ORIGINAL\" ] || { echo 'Set ORIGINAL=/path/to/Vinyl-Player/index.html to compare the layout with the original.'; exit 0; }; node shots.js \"$ORIGINAL\" out/ref && node shots.js ../index.html out/new && node cmp.js out/ref out/new 3"
   },
   "devDependencies": {

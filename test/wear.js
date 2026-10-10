@@ -43,7 +43,7 @@ const { HTML, WAV, OUT } = require('./lib');
     // ticks = the loud peaks; hiss and ordinary crackle are far below a 0.3-amp scratch
     let peak = 0; for (const v of samples) peak = Math.max(peak, Math.abs(v));
     const ticks = []; let lastTick = -1e9;
-    for (let i = 0; i < samples.length; i++) if (Math.abs(samples[i]) > peak * 0.6 && i - lastTick > sr * 0.3) { ticks.push(i / sr); lastTick = i; }
+    for (let i = 0; i < samples.length; i++) if (Math.abs(samples[i]) > peak * 0.25 && i - lastTick > sr * 0.3) { ticks.push(i / sr); lastTick = i; }
     return { worst, mean: sum / n, peak, ticks, seg: Deck.seg && Deck.seg.kind, pos: Engine.pos() };
   });
   const gaps = res.ticks.slice(1).map((t, i) => (t - res.ticks[i]).toFixed(3));

@@ -951,14 +951,15 @@
 
     @media (max-width: 480px) {
       :root { --vinyl-size: min(260px, 70vmin); }
-      .focus { --vinyl-size: min(380px, 85vmin); }
-      .turntable {
+      .focus { --vinyl-size: min(380px, 85vmin, 100vw - 100px); }   /* deck + page padding must fit the screen */
+      .turntable, .focus .turntable {
         width: calc(var(--vinyl-size) + 60px);
         height: calc(var(--vinyl-size) + 40px);
       }
       .tonearm, .tonearm-shadow, .arm-fixed { right: 6px; }
-      .fc-seek { width: 80px; }
-      .focus-controls { padding: 8px 18px; gap: 12px; border-radius: 40px; }
+      .fc-seek { width: 80px; flex: 0 1 80px; min-width: 40px; }
+      .fc-btn { padding: 8px 9px; }
+      .focus-controls { padding: 8px 12px; gap: 8px; border-radius: 40px; max-width: calc(100vw - 12px); }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -1250,7 +1251,8 @@
       LEADIN_NOISE_FLOOR: 0.3,// lead-in crackle is at least this loud while Effects is on
       LEADIN_DENSITY: 4,      // crackle is this much denser in the lead-in
       SHELLAC_HISS: 2.6,      // hiss multiplier at 78
-      PCM_MAX_SEC: 1200,      // longer tracks stay on the media element (decoded audio is ~0.35 MB per second)
+      PCM_MAX_SEC: 1200,      // longer tracks stay on the media element (held as 16-bit: ~0.18 MB per second, twice that while decoding)
+      PCM_SLICE: 1 << 21,     // samples converted to 16-bit between two breaths of the main thread
       PCM_MAX_BYTES: 50e6,    // same, by file size, for files whose length cannot be read
       RMS_SLICES: 600,        // loudness slices per track for groove shading
 
@@ -2032,6 +2034,13 @@
           if (m.defects) this.defects = m.defects;
         }
 
+        /** Cubic (Catmull-Rom) read of channel d at a fractional position p. */
+        cubic(d, p, len) {
+          const i0 = p | 0, f = p - i0;
+          const xm = d[i0 > 0 ? i0 - 1 : 0], x0 = d[i0], x1 = d[i0 + 1], x2 = d[i0 + 2 < len ? i0 + 2 : len - 1];
+          return x0 + 0.5 * f * (x1 - xm + f * (2 * xm - 5 * x0 + 4 * x1 - x2 + f * (3 * (x0 - x1) + x2 - xm)));
+        }
+
         /** Start one click, pop or tick: a decaying burst. */
         hit(amp, freq, tau, pan) {
           if (this.voices.length >= 24) return;
@@ -2086,20 +2095,25 @@
                 if (this.xf <= 0) { this.xf = 0; this.pos = this.jump; this.jump = null; }
               } else if (this.xf < 1) this.xf = Math.min(1, this.xf + 0.0104);
               const p = this.pos, len = cur.len;
+              // source samples that pass under the stylus during this output sample (negative in reverse)
+              const adv = (this.on && g > 0.5) || (this.held && this.scrub) ? eff * cur.ratio : 0;
               if (g > 0.0005 && p < len - 1) {
-                // cubic (Catmull-Rom) read at a fractional, possibly reversing, position
-                const i0 = p | 0, f = p - i0;
-                const im = i0 > 0 ? i0 - 1 : 0, i1 = i0 + 1, i2 = i0 + 2 < len ? i0 + 2 : len - 1;
-                const amp = g * this.xf;
-                let d = cur.ch[0], xm = d[im], x0 = d[i0], x1 = d[i1], x2 = d[i2];
-                l = (x0 + 0.5 * f * (x1 - xm + f * (2 * xm - 5 * x0 + 4 * x1 - x2 + f * (3 * (x0 - x1) + x2 - xm)))) * amp;
-                if (cur.ch.length > 1) {
-                  d = cur.ch[1]; xm = d[im]; x0 = d[i0]; x1 = d[i1]; x2 = d[i2];
-                  r = (x0 + 0.5 * f * (x1 - xm + f * (2 * xm - 5 * x0 + 4 * x1 - x2 + f * (3 * (x0 - x1) + x2 - xm)))) * amp;
-                } else r = l;
+                // Above cut speed (45, 78, a quick scratch) one output sample spans several source samples. Average
+                // reads across that span; a single read would fold everything above the new Nyquist limit back down.
+                // A span just over 1 is left alone: a 48 kHz file on 44.1 kHz hardware would lose treble for nothing.
+                const span = adv < 0 ? -adv : adv, m = span > 1.2 ? (span < 8 ? Math.ceil(span) : 8) : 1;
+                const stereo = cur.ch.length > 1;
+                for (let j = 0; j < m; j++) {
+                  let q = p + adv * j / m;
+                  if (q < 0) q = 0; else if (q > len - 1.5) q = len - 1.5;
+                  l += this.cubic(cur.ch[0], q, len);
+                  if (stereo) r += this.cubic(cur.ch[1], q, len);
+                }
+                const amp = g * this.xf / (32767 * m);                    // samples are 16-bit
+                l *= amp; r = stereo ? r * amp : l;
               }
-              if ((this.on && g > 0.5) || (this.held && this.scrub)) {
-                this.pos += eff * cur.ratio;
+              if (adv) {
+                this.pos += adv;
                 if (this.pos < 0) this.pos = 0;
                 else if (this.pos >= len) {
                   this.pos = len;
@@ -2513,12 +2527,22 @@
               Persistence.patchTrack(tr.id, { rms: tr.rms });
               Render.schedule();
             }
-            tr.pcmCh = [];
+            // Keep 16-bit samples: half the memory of floats. Converted in slices so a long track does not cost a frame.
+            const pcm = [];
             for (let c = 0; c < Math.min(2, buf.numberOfChannels); c++) {
-              const a = new Float32Array(buf.length);
-              buf.copyFromChannel(a, c);
-              tr.pcmCh.push(a);
+              const f = buf.getChannelData(c), a = new Int16Array(f.length);
+              for (let i = 0; i < f.length; i += C.PCM_SLICE) {
+                for (let j = i, end = Math.min(f.length, i + C.PCM_SLICE); j < end; j++) {
+                  const v = f[j] * 32767;                                // decoded MP3 can overshoot ±1
+                  a[j] = v > 32767 ? 32767 : v < -32767 ? -32767 : v;
+                }
+                if (!document.hidden) await new Promise(r => setTimeout(r));   // timers crawl in a hidden tab
+              }
+              pcm.push(a);
             }
+            if (tr.pcm !== 'loading') continue;
+            if (!wanted().includes(tr)) { tr.pcm = null; continue; }
+            tr.pcmCh = pcm;
             tr.pcmSr = buf.sampleRate; tr.pcmDur = buf.duration;
             tr.pcm = 'held';
             Engine.handOver(tr);

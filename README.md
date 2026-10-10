@@ -87,8 +87,8 @@ Your library and settings from the original Vinyl-Player carry over when this pa
 ## Limits
 
 - Tracks longer than 20 minutes, and files the browser cannot decode into memory, play through the plain media element. They still follow platter speed and pitch, but they scrub silently, cannot play backwards and do not get wow and flutter. In Safari that path cannot glide: the music starts once the platter is at speed and stops when the motor is switched off.
-- A decoded track uses about 0.35 MB of memory per second of stereo audio. Only the current track and the next one are held.
-- Above 33⅓ rpm there is no anti-aliasing filter on the sped-up audio; very bright recordings can sound slightly rough at 78.
+- A decoded track is held as 16-bit samples: about 0.18 MB of memory per second of stereo audio, and twice that for a moment while it is being decoded. Only the current track and the next one are held.
+- Above 33⅓ rpm the sped-up audio is smoothed by a simple averaging filter. It removes most of the aliasing at 78 and costs about 1 dB of treble at 45.
 - ID3 tags (v1, v2.3, v2.4) are read from MP3 files. Other formats play, without tags.
 
 ## Development
