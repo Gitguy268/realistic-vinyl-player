@@ -330,7 +330,6 @@
       transform-origin: 50% 0;
     }
     .tonearm { z-index: 10; cursor: grab; touch-action: none; will-change: transform; }
-    .tonearm:not(.arm-dragging), .tonearm-shadow { transition: transform .6s cubic-bezier(0.34, 1.3, 0.64, 1); }
     .tonearm.arm-dragging { cursor: grabbing; }
     .arm-fixed { z-index: 8; pointer-events: none; }
 
@@ -1051,7 +1050,7 @@
       <div class="arm-fixed" aria-hidden="true"><div class="arm-pivot"></div></div>
       <div class="arm-fixed arm-restbox" id="armRestBox" aria-hidden="true"><div class="arm-rest"></div></div>
       <div class="tonearm-shadow" id="armShadow" aria-hidden="true"><div class="tonearm-tube"><i></i></div><div class="tonearm-head"><i></i></div></div>
-      <div class="tonearm off" id="tonearm" role="slider" aria-label="Tonearm" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div class="tonearm" id="tonearm" role="slider" aria-label="Tonearm" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
         <div class="tonearm-tube">
           <div class="tonearm-weight"></div>
           <div class="tonearm-bar"></div>
@@ -1224,26 +1223,47 @@
       // Tonearm geometry (pivot position and arm length are CSS: .tonearm top / height)
       ARM_REST_CLEAR: 3.6,    // gap between the parked arm tube and the platter edge, in % of the platter
 
-      /** Visual rotation speed at 33⅓ RPM (degrees per frame) */
-      VINYL_SPEED_33: 1.8,
-      /** Friction multiplier when decelerating */
-      VINYL_FRICTION: 0.93,
-      /** Minimum velocity threshold before stopping */
-      VINYL_MIN_VEL: 0.01,
-      /** Degrees-to-seconds ratio for normal scrub */
-      SEC_PER_DEG: 1.8 / 360,
-      /** Degrees-to-seconds ratio for scratch mode */
-      SEC_PER_DEG_SCRATCH: 3.6 / 360,
-      /** Tonearm angles */
-      NEEDLE_OFF: -8,
-      NEEDLE_START: 8,
-      NEEDLE_END: 24,
-      /** RPM speed mappings */
-      RPM: {
-        33: { rate: 1.0,   visual: 1.8 },
-        45: { rate: 1.35,  visual: 2.43 },
-        78: { rate: 2.34,  visual: 4.21 }
+      // Platter. The record is "cut" at 33⅓: one turn always holds 1.8 s of audio, so at every speed
+      // audio rate = angular speed / 200°/s. Speeds below are in units of 33⅓ rpm.
+      DEG_PER_SEC: 200,       // 33⅓ rpm
+      SEC_PER_DEG: 1.8 / 360, // audio seconds per degree of record (same ratio the original scrubbed with)
+      SEC_PER_REV: 1.8,
+      RPM: { 33: 1, 45: 1.35, 78: 2.34 },   // 200 / 270 / 468 °/s
+      PITCH_RANGE: 8,         // pitch fader, ± percent
+      SPINUP_TAU: 0.45,       // s; motor reaches 95% of speed in about 1.4 s
+      COAST_TAU: 1.0,         // s; platter coasts to a stop in about 3 s
+      SLIP_TAU: 0.08,         // s; record catches the platter in about 0.25 s after a hand lets go
+      HAND_TAU: 0.025,        // s; friction between hand and record
+      EL_MIN_RATE: 0.07,      // the media element is paused below this playback rate…
+      EL_MAX_RATE: 4,         // …and capped at this one (browsers mute or clamp outside roughly 0.06–4)
+
+      // Tonearm motion (seconds)
+      ARM_LIFT_S: 0.14,
+      ARM_SWING_S: 0.34,      // longest swing between two grooves
+      ARM_LOWER_S: 0.6,       // damped cue from the rest
+      ARM_LOWER_FAST_S: 0.42, // track changes: lift + swing + lower stays under 1 s
+      ARM_GLIDE_TAU: 0.12,    // short seeks glide instead of jumping
+      ARM_INERTIA_TAU: 0.05,  // lag behind the pointer while dragged
+      ARM_VIBRATION: 0.09,    // degrees of bass shake at full level
+
+      // Silent stretches of groove (seconds of groove at 33⅓)
+      LEADIN_SEC: 2,
+      GAP_SEC: 1.5,
+      RUNOUT_REVS: 1.5,       // turns from the last groove into the locked groove
+      LOCKED_REVS: 3,         // turns in the locked groove before auto-return
+
+      // Imperfections at Imperfection = 100%
+      ECCENTRIC: 0.0045,      // off-centre hole, in record radii
+      WARP_DEG: 0.9,          // sheen flicker from a slight warp
+
+      // Record condition
+      CONDITIONS: {
+        mint: { wear: 0.04 },
+        good: { wear: 0.33 },
+        worn: { wear: 0.66 },
+        beat: { wear: 1 }
       },
+
       /** IndexedDB config */
       DB_NAME: 'vinyl-db',
       DB_VER: 2,
@@ -1252,6 +1272,7 @@
       /** localStorage keys */
       PREFS_KEY: 'vinyl-prefs',
       TRACKS_KEY: 'vinyl-tracks',
+      DECK_KEY: 'vinyl-deck',     // new settings live here; the two keys above keep their original shape
       /** Regex for validating hex color codes */
       HEX_RE: /^#[0-9a-f]{6}$/i,
       /** Bass visualizer settings */
@@ -1314,23 +1335,7 @@
       trackLoaded: false,
       currentIdx: -1,
       playlist: [],
-      vinylAngle: 0,
-      vinylVelocity: 0,
-      vinylDragging: false,
-      vinylWasPlaying: false,
-      dragStartAngle: 0,
-      dragBaseAngle: 0,
-      dragStartTime: 0,
-      prevDragAngle: 0,
-      lastTimestamp: 0,
       lastRenderIdx: -2,
-      armDragging: false,
-      armDidMove: false,
-      armStartAngle: 0,
-      armStartPointerAngle: 0,
-      armPivotX: 0,
-      armPivotY: 0,
-      prevArmAngle: 0,
       scratchMode: false,
       effectsEnabled: true,
       hasCustomColors: false,
@@ -1352,16 +1357,16 @@
       analyser: null,
       freqData: null,
       scratchBuffer: null,
-      activeScratchSrc: null,
-      activeScratchGain: null,
-      activeScratchFilter: null,
-      coverUrl: null,
       coverDataUrl: null,
       db: null,
       idCounter: Date.now(),
       dragCounter: 0,
       lastArmKey: '',
       accentHSL: ['14', '80%', '54%'],
+      light: '',
+      labelRPM: 33,
+      ringDrawn: false,
+      matVisible: false,
     };
 
     // ─── UTILS ───────────────────────────────────────────────────
@@ -1373,16 +1378,12 @@
         return (d && isFinite(d) && d > 0) ? d : 0;
       },
 
-      getCurrentTime: () => DOM.audio.currentTime,
-
       formatTime: s => {
         if (!isFinite(s) || s < 0) s = 0;
         return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
       },
 
       cleanName: n => n.replace(/\.[^.]+$/, ''),
-
-      getPointer: e => ({ x: e.clientX, y: e.clientY }),
 
       pointerAngle: (el, x, y) => {
         const r = el.getBoundingClientRect();
@@ -1434,11 +1435,6 @@
         return { x: tr.left + Geo.P.x * k, y: tr.top + Geo.P.y * k };
       },
 
-      readArmAngle: () => {
-        const m = DOM.tonearm.style.transform.match(/rotate\(([-\d.]+)deg\)/);
-        return m ? parseFloat(m[1]) : Geo.thRest;
-      },
-
       announce: text => {
         if (DOM.ariaLive) {
           DOM.ariaLive.textContent = '';
@@ -1461,9 +1457,7 @@
           reader.onloadend = () => resolve(reader.result);
           reader.readAsDataURL(blob);
         });
-      },
-
-      rpmConfig: () => C.RPM[State.currentRPM] || C.RPM[33]
+      }
     };
 
     // ─── ID3 METADATA PARSER ─────────────────────────────────────
@@ -1641,6 +1635,7 @@
     // The record carries the whole playlist. Radii are in record radii (1 = edge).
     const N = Object.freeze({
       LEADIN: C.LEADIN_MM / (C.REC_D_MM / 2),
+      DROP: (C.LEADIN_MM - 1) / (C.REC_D_MM / 2),      // where the needle lands in the lead-in
       OUT: C.GROOVE_OUT_MM / (C.REC_D_MM / 2),
       IN: C.GROOVE_IN_MM / (C.REC_D_MM / 2),
       LOCKED: C.LOCKED_MM / (C.REC_D_MM / 2),
@@ -1699,7 +1694,6 @@
         Render.disc();
         Render.label();
         State.lastArmKey = '';
-        UI.updateNeedle();
       },
 
       /** Small seeded PRNG (mulberry32) so a record always looks the same. */
@@ -1858,11 +1852,68 @@
 
     // ─── WEAR: record condition (defect map arrives with the imperfections phase) ──
     const Wear = {
+      build() {},
       draw() {}
     };
 
+    // ─── MECHANICAL SOUNDS ───────────────────────────────────────
+    const Sfx = {
+      on: () => State.effectsEnabled && State.audioCtx,
+
+      click() {
+        if (!Sfx.on()) return;
+        try {
+          const t = State.audioCtx.currentTime;
+          const osc = State.audioCtx.createOscillator();
+          const g = State.audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(800, t); osc.frequency.exponentialRampToValueAtTime(100, t + 0.05);
+          g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+          osc.connect(g).connect(State.globalGain); osc.start(); osc.stop(t + 0.05);
+        } catch (e) {}
+      },
+
+      clunk() {
+        if (!Sfx.on()) return;
+        try {
+          const t = State.audioCtx.currentTime;
+          const osc = State.audioCtx.createOscillator();
+          const g = State.audioCtx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(120, t); osc.frequency.exponentialRampToValueAtTime(40, t + 0.1);
+          g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+          osc.connect(g).connect(State.globalGain); osc.start(); osc.stop(t + 0.1);
+        } catch (e) {}
+      },
+
+      whoosh(up) {
+        if (State.scratchMode || !Sfx.on()) return;
+        try {
+          const ctx = State.audioCtx, t = ctx.currentTime;
+          const src = ctx.createBufferSource();
+          src.buffer = Engine.noiseBuffer();
+          const f = ctx.createBiquadFilter();
+          f.type = 'bandpass';
+          if (up) { f.frequency.setValueAtTime(300, t); f.frequency.linearRampToValueAtTime(800, t + 0.15); }
+          else { f.frequency.setValueAtTime(800, t); f.frequency.linearRampToValueAtTime(300, t + 0.15); }
+          const g = ctx.createGain();
+          g.gain.setValueAtTime(0.08, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+          src.connect(f).connect(g).connect(State.globalGain); src.start(); src.stop(t + 0.15);
+        } catch (e) {}
+      },
+
+      cue() { Sfx.click(); },
+      needleDrop() { Sfx.clunk(); },
+      motor() { Sfx.clunk(); },
+      thump() { Sfx.clunk(); },
+      detent() { Sfx.click(); },
+    };
+
     // ─── AUDIO ENGINE ────────────────────────────────────────────
-    const AudioEngine = {
+    // The <audio> element is the normal path and the fallback. Its rate follows the record.
+    const Engine = {
+      lastRate: 0, rateAt: 0, starting: false, pendingSeek: null, scrubAcc: 0,
+
       ensure() {
         if (State.ctxReady) {
           if (State.audioCtx?.state === 'suspended') State.audioCtx.resume();
@@ -1908,7 +1959,7 @@
           State.noiseNode.start();
           State.ctxReady = true;
           DOM.audio.volume = 1;
-          AudioEngine.updateParams();
+          Engine.updateParams();
         } catch (e) { console.warn('AudioContext init failed:', e); }
       },
 
@@ -1919,12 +1970,11 @@
         State.bassEQ?.gain.setTargetAtTime(parseFloat(DOM.bassSlider.value), t, 0.05);
         State.midEQ?.gain.setTargetAtTime(parseFloat(DOM.midSlider.value), t, 0.05);
         State.trebleEQ?.gain.setTargetAtTime(parseFloat(DOM.trebleSlider.value), t, 0.05);
-        const noiseActive = (State.playing || State.vinylDragging) && State.needleOn;
-        const nv = noiseActive ? parseFloat(DOM.noiseSlider.value) * 0.25 : 0;
+        const nv = Deck.contact ? parseFloat(DOM.noiseSlider.value) * 0.25 : 0;
         State.noiseGain?.gain.setTargetAtTime(nv, t, 0.1);
       },
 
-      getScratchBuffer() {
+      noiseBuffer() {
         if (State.scratchBuffer) return State.scratchBuffer;
         const sr = State.audioCtx.sampleRate;
         const len = sr * 2;
@@ -1934,119 +1984,357 @@
         return State.scratchBuffer = buf;
       },
 
-      startScratch() {
-        if (!State.scratchMode || !State.audioCtx) return;
-        AudioEngine.stopScratch();
-        try {
-          State.activeScratchSrc = State.audioCtx.createBufferSource();
-          State.activeScratchSrc.buffer = AudioEngine.getScratchBuffer();
-          State.activeScratchSrc.loop = true;
-          State.activeScratchFilter = State.audioCtx.createBiquadFilter();
-          State.activeScratchFilter.type = 'bandpass';
-          State.activeScratchFilter.Q.value = 5;
-          State.activeScratchFilter.frequency.value = 400;
-          State.activeScratchGain = State.audioCtx.createGain();
-          State.activeScratchGain.gain.value = 0.001;
-          State.activeScratchSrc.connect(State.activeScratchFilter)
-            .connect(State.activeScratchGain).connect(State.globalGain);
-          State.activeScratchSrc.start();
-        } catch (e) {}
-      },
-
-      updateScratch(vel) {
-        if (!State.scratchMode || !State.activeScratchGain || !State.audioCtx) return;
-        try {
-          const abs = Utils.clamp(Math.abs(vel), 0, 40);
-          const t = State.audioCtx.currentTime;
-          if (abs < 0.2) { State.activeScratchGain.gain.setTargetAtTime(0.001, t, 0.05); return; }
-          State.activeScratchFilter.frequency.setTargetAtTime(Utils.clamp(200 + abs * 80, 200, 3500), t, 0.02);
-          State.activeScratchGain.gain.setTargetAtTime(Utils.clamp(abs * 0.008, 0, 0.1), t, 0.02);
-        } catch (e) {}
-      },
-
-      stopScratch() {
-        if (!State.activeScratchGain || !State.audioCtx) return;
-        try {
-          const g = State.activeScratchGain, s = State.activeScratchSrc;
-          State.activeScratchSrc = State.activeScratchGain = State.activeScratchFilter = null;
-          g?.gain.setTargetAtTime(0.001, State.audioCtx.currentTime, 0.05);
-          setTimeout(() => { try { s?.stop(); s?.disconnect(); g?.disconnect(); } catch {} }, 100);
-        } catch (e) {}
-      },
-
-      scratchBurst(up) {
-        if (!State.scratchMode || !State.audioCtx) return;
-        try {
-          const dur = 0.2, t = State.audioCtx.currentTime;
-          const src = State.audioCtx.createBufferSource();
-          src.buffer = AudioEngine.getScratchBuffer();
-          const f = State.audioCtx.createBiquadFilter();
-          f.type = 'bandpass'; f.Q.value = 4;
-          const g = State.audioCtx.createGain();
-          if (up) {
-            f.frequency.setValueAtTime(300, t); f.frequency.exponentialRampToValueAtTime(2500, t + dur);
-            g.gain.setValueAtTime(0.001, t); g.gain.linearRampToValueAtTime(0.08, t + dur / 2);
-            g.gain.linearRampToValueAtTime(0.001, t + dur);
-          } else {
-            f.frequency.setValueAtTime(2500, t); f.frequency.exponentialRampToValueAtTime(300, t + dur);
-            g.gain.setValueAtTime(0.08, t); g.gain.linearRampToValueAtTime(0.001, t + dur);
-          }
-          src.connect(f).connect(g).connect(State.globalGain);
-          src.start(); src.stop(t + dur);
-        } catch (e) {}
-      },
-
-      playClick() {
-        if (!State.effectsEnabled || !State.audioCtx) return;
-        try {
-          const t = State.audioCtx.currentTime;
-          const osc = State.audioCtx.createOscillator();
-          const g = State.audioCtx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(800, t); osc.frequency.exponentialRampToValueAtTime(100, t + 0.05);
-          g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
-          osc.connect(g).connect(State.globalGain); osc.start(); osc.stop(t + 0.05);
-        } catch (e) {}
-      },
-
-      playClunk() {
-        if (!State.effectsEnabled || !State.audioCtx) return;
-        try {
-          const t = State.audioCtx.currentTime;
-          const osc = State.audioCtx.createOscillator();
-          const g = State.audioCtx.createGain();
-          osc.type = 'triangle';
-          osc.frequency.setValueAtTime(120, t); osc.frequency.exponentialRampToValueAtTime(40, t + 0.1);
-          g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
-          osc.connect(g).connect(State.globalGain); osc.start(); osc.stop(t + 0.1);
-        } catch (e) {}
-      },
-
-      playWhoosh(up) {
-        if (State.scratchMode || !State.effectsEnabled || !State.audioCtx) return;
-        try {
-          const t = State.audioCtx.currentTime;
-          const src = State.audioCtx.createBufferSource();
-          src.buffer = AudioEngine.getScratchBuffer();
-          const f = State.audioCtx.createBiquadFilter();
-          f.type = 'bandpass';
-          if (up) {
-            f.frequency.setValueAtTime(300, t); f.frequency.linearRampToValueAtTime(800, t + 0.15);
-          } else {
-            f.frequency.setValueAtTime(800, t); f.frequency.linearRampToValueAtTime(300, t + 0.15);
-          }
-          const g = State.audioCtx.createGain();
-          g.gain.setValueAtTime(0.08, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
-          src.connect(f).connect(g).connect(State.globalGain); src.start(); src.stop(t + 0.15);
-        } catch (e) {}
-      },
-
       getBassLevel() {
         if (!State.analyser || !State.freqData) return 0;
         State.analyser.getByteFrequencyData(State.freqData);
         let sum = 0;
         for (let i = 0; i < C.BASS_BINS; i++) sum += State.freqData[i];
         return sum / (C.BASS_BINS * 255);
+      },
+
+      // ── Transport ──
+      pos: () => Engine.pendingSeek ?? (DOM.audio.currentTime || 0),
+
+      dur: () => Utils.safeDuration() || State.playlist[State.currentIdx]?.duration || 0,
+
+      load(track) {
+        const a = DOM.audio;
+        Engine.pendingSeek = null;
+        a.src = track.url;
+        // A real deck changes pitch with speed. Browsers reset this on a new source, so set it every time.
+        a.preservesPitch = a.mozPreservesPitch = a.webkitPreservesPitch = false;
+        Engine.lastRate = 0;
+      },
+
+      unload() {
+        try { DOM.audio.removeAttribute('src'); DOM.audio.load(); } catch {}
+        Engine.pendingSeek = null;
+      },
+
+      seek(t) {
+        const a = DOM.audio;
+        t = Math.max(0, t);
+        if (a.readyState >= 1) {
+          Engine.pendingSeek = null;
+          try { a.currentTime = Math.min(t, Utils.safeDuration() || t); } catch {}
+        } else if (Engine.pendingSeek === null) {
+          Engine.pendingSeek = t;
+          a.addEventListener('loadedmetadata', () => {
+            const p = Engine.pendingSeek; Engine.pendingSeek = null;
+            if (p !== null) Engine.seek(p);
+          }, { once: true });
+        } else Engine.pendingSeek = t;
+      },
+
+      /** The hand moved the record by this many seconds of groove. The element cannot play backwards, so scrub silently. */
+      scrub(sec) {
+        Engine.scrubAcc += sec;
+        if (Math.abs(Engine.scrubAcc) < 0.03) return;
+        Engine.seek(Utils.clamp(Engine.pos() + Engine.scrubAcc, 0, Engine.dur()));
+        Engine.scrubAcc = 0;
+      },
+
+      setSpeed() {},
+      hold() {},
+      hand() {},
+
+      /** Make the media element follow the record: its rate is the record's speed, and it only runs with the stylus in a track. */
+      follow() {
+        const a = DOM.audio, w = Deck.wr;
+        const run = Deck.contact && Deck.seg?.kind === 'track' && !Deck.held && w >= C.EL_MIN_RATE && !a.ended;
+        if (!run) { if (!a.paused) a.pause(); return; }
+        const now = performance.now(), r = Utils.clamp(w, C.EL_MIN_RATE, C.EL_MAX_RATE);
+        if (Math.abs(r - Engine.lastRate) > 0.003 * r && now - Engine.rateAt > 30) {
+          try { a.playbackRate = r; } catch {}
+          Engine.lastRate = r; Engine.rateAt = now;
+        }
+        if (a.paused && !Engine.starting) {
+          Engine.starting = true;
+          Promise.resolve(a.play()).then(() => { Engine.starting = false; }, err => {
+            Engine.starting = false;
+            if (err?.name === 'NotAllowedError') {
+              DOM.hint.textContent = 'Tap play again (browser blocked autoplay)';
+              Player.stop();
+            }
+          });
+        }
+      }
+    };
+
+    // ─── SETTINGS (new deck options, stored under their own key) ──
+    const Settings = {
+      v: { condition: 'good', imperfection: 0.5, pitch: 0, keepSpinning: false, autoReturn: true, sides: false, sizeBySpeed: false },
+
+      load() {
+        try { Object.assign(Settings.v, JSON.parse(localStorage.getItem(C.DECK_KEY)) || {}); } catch {}
+        const v = Settings.v;
+        if (!C.CONDITIONS[v.condition]) v.condition = 'good';
+        v.pitch = Utils.clamp(parseFloat(v.pitch) || 0, -C.PITCH_RANGE, C.PITCH_RANGE);
+        v.imperfection = Utils.clamp(parseFloat(v.imperfection) || 0, 0, 1);
+        DOM.condSel.value = v.condition;
+        DOM.impSlider.value = v.imperfection;
+        DOM.pitchSlider.value = v.pitch;
+        DOM.keepSpinChk.checked = !!v.keepSpinning;
+        DOM.autoReturnChk.checked = !!v.autoReturn;
+        DOM.sidesChk.checked = !!v.sides;
+        DOM.sizeChk.checked = !!v.sizeBySpeed;
+        Settings.apply();
+      },
+
+      save() { try { localStorage.setItem(C.DECK_KEY, JSON.stringify(Settings.v)); } catch {} },
+
+      apply() {
+        DOM.impVal.textContent = Math.round(Settings.v.imperfection * 100) + '%';
+        DOM.app.style.setProperty('--wear', C.CONDITIONS[Settings.v.condition].wear);
+        DOM.pitchSlider.setAttribute('aria-valuetext', Settings.pitchText());
+      },
+
+      pitchText: () => (Settings.v.pitch > 0 ? '+' : '') + Settings.v.pitch.toFixed(1) + '%'
+    };
+
+    // ─── DECK: motor, platter, record and what the stylus rides ──
+    const Deck = {
+      motorOn: false,
+      wp: 0,            // platter speed, in units of 33⅓ rpm (1 = 200°/s)
+      wr: 0,            // record speed (differs from the platter while a hand holds it or it slips)
+      angP: 0, angR: 0, // degrees
+      strobe: 0,        // apparent angle of the strobe marks
+      held: false, hand: 0, handPrev: 0,
+      contact: false,   // stylus is in the groove
+      dropping: false,  // arm is on its way down
+      seg: null,        // what the stylus rides: { kind: leadin|track|gap|runout|locked, idx, from, acc, dur, revs }
+      last: performance.now() / 1000,
+
+      target: () => Deck.motorOn ? C.RPM[State.currentRPM] * (1 + Settings.v.pitch / 100) : 0,
+
+      /** Motor state for display and tests: off | spinning up | at speed | spinning down. */
+      motorState() {
+        const tgt = Deck.target();
+        if (!Deck.motorOn) return Deck.wp > 0.005 ? 'spinning down' : 'off';
+        return Math.abs(Deck.wp - tgt) > 0.01 * tgt ? 'spinning up' : 'at speed';
+      },
+
+      setMotor(on) {
+        if (Deck.motorOn === on) return;
+        Deck.step();
+        Deck.motorOn = on;
+        Sfx.motor(on);
+        DOM.motorBtn.setAttribute('aria-pressed', on);
+        DOM.turntable.classList.toggle('motor-on', on);
+        Engine.setSpeed();
+      },
+
+      /** Advance the physics to now. Called from the frame loop and from a timer; every update is closed-form in dt,
+          so playback logic never depends on frames being drawn. */
+      step() {
+        const t = performance.now() / 1000, dt = Math.min(t - Deck.last, 2);
+        if (dt <= 0) return;
+        Deck.last = t;
+        const tgt = Deck.target();
+        Deck.wp += (tgt - Deck.wp) * (1 - Math.exp(-dt / (Deck.motorOn ? C.SPINUP_TAU : C.COAST_TAU)));
+        if (!tgt && Deck.wp < 2e-4) Deck.wp = 0;
+        const before = Deck.angR;
+        if (Deck.held) {
+          // the record follows the hand through a little friction
+          Deck.angR += (Deck.hand - Deck.angR) * (1 - Math.exp(-dt / C.HAND_TAU));
+          Deck.wr = (Deck.angR - before) / dt / C.DEG_PER_SEC;
+        } else {
+          // let go: the record slips on the mat and catches up with the platter
+          Deck.wr += (Deck.wp - Deck.wr) * (1 - Math.exp(-dt / C.SLIP_TAU));
+          if (!tgt && Math.abs(Deck.wr) < 2e-4) Deck.wr = 0;
+          Deck.angR += Deck.wr * C.DEG_PER_SEC * dt;
+        }
+        Deck.angP += Deck.wp * C.DEG_PER_SEC * dt;
+
+        // Strobe marks: under the lamp they alias, standing still at the nominal speed.
+        const w = Deck.wp * C.DEG_PER_SEC, period = C.RPM[State.currentRPM] * C.DEG_PER_SEC;
+        Deck.strobeV = Deck.motorOn ? w - period * Math.round(w / period) : w;
+        Deck.strobe = (Deck.strobe + Deck.strobeV * dt) % 360;
+
+        Deck.ride((Deck.angR - before) * C.SEC_PER_DEG);
+        Engine.follow();
+      },
+
+      /** `sec` seconds of groove just passed under the stylus (negative when a hand turns the record back). */
+      ride(sec) {
+        const s = Deck.seg;
+        if (Deck.held && Player.isReady() && (!s || s.kind === 'track')) Engine.scrub(sec);
+        if (!s || !Deck.contact || s.kind === 'track') return;
+        s.acc = Math.max(0, s.acc + sec);
+        if (s.kind === 'locked') {
+          const revs = Math.floor(s.acc / C.SEC_PER_REV);
+          if (revs > s.revs) { s.revs = revs; Deck.lockedTurn(); }
+        } else if (s.acc >= s.dur) Deck.segDone();
+      },
+
+      begin(kind, idx = State.currentIdx, t = 0, from = idx) {
+        Deck.seg = {
+          kind, idx, from, acc: 0, revs: 0,
+          dur: { leadin: C.LEADIN_SEC, gap: C.GAP_SEC, runout: C.RUNOUT_REVS * C.SEC_PER_REV }[kind] || 0
+        };
+        if (kind === 'track') {
+          if (State.currentIdx !== idx) Player.loadTrack(idx);
+          Engine.seek(t);
+        }
+        Engine.updateParams();
+      },
+
+      segDone() {
+        const s = Deck.seg;
+        if (s.kind === 'leadin' || s.kind === 'gap') Deck.begin('track', s.idx, 0);
+        else if (s.kind === 'runout') Deck.begin('locked', s.idx);
+      },
+
+      /** One more turn in the locked groove: thump, arm bob, and home after a few of them. */
+      lockedTurn() {
+        Sfx.thump();
+        Arm.bob = 1;
+        if (Settings.v.autoReturn && Deck.seg.revs >= C.LOCKED_REVS) Player.finish();
+      },
+
+      /** Where the stylus would come down right now. */
+      dropPoint() {
+        const idx = State.currentIdx, t = Engine.pos();
+        if (idx === 0 && t < 0.05) return { kind: 'leadin', idx, t: 0, r: N.DROP };
+        return { kind: 'track', idx, t, r: Program.radius(idx, t) };
+      },
+
+      /** Radius under the stylus (record radii). */
+      stylusR() {
+        const s = Deck.seg, b = Program.bands;
+        if (!s) return Deck.dropPoint().r;
+        const u = s.dur ? Utils.clamp(s.acc / s.dur, 0, 1) : 0;
+        const lastIn = b.length ? b[b.length - 1].r1 : N.IN;
+        switch (s.kind) {
+          case 'leadin': return N.DROP + (N.OUT - N.DROP) * u;
+          case 'gap': return b[s.from] && b[s.idx] ? b[s.from].r1 + (b[s.idx].r0 - b[s.from].r1) * u : N.OUT;
+          case 'runout': return lastIn + (N.LOCKED - lastIn) * u;
+          case 'locked': return N.LOCKED;
+          default: return Program.radius(s.idx, Engine.pos());
+        }
+      },
+
+      /** Lower the stylus at a point { kind, idx, t, r }. `slow` uses the full damped cue. */
+      drop(pt = Deck.dropPoint(), slow = Arm.mode === 'rest') {
+        Deck.unseat();
+        Deck.dropping = true;
+        Sfx.cue();
+        Arm.cueTo(pt.r, slow, () => {
+          Deck.dropping = false;
+          Deck.contact = true; State.needleOn = true;
+          Sfx.needleDrop();
+          Deck.begin(pt.kind, pt.idx, pt.t);
+        });
+      },
+
+      /** Take the stylus out of the groove (the arm itself is moved by the caller). Remembers a sensible spot to come back to. */
+      unseat() {
+        const s = Deck.seg;
+        Deck.contact = false; Deck.dropping = false; State.needleOn = false;
+        Deck.seg = null;
+        if (s?.kind === 'gap') Player.loadTrack(s.idx);                         // it was on its way into the next track
+        else if (s?.kind === 'runout' || s?.kind === 'locked') Player.loadTrack(0);   // side finished: start over
+        Engine.updateParams();
+        Engine.follow();
+      },
+
+      lift() { Deck.unseat(); Sfx.cue(); Arm.liftTo(); },
+      park() { Deck.unseat(); Arm.park(); },
+
+      /** Cue lever, tonearm click, Lift/Drop button: stylus only, the motor keeps turning. */
+      toggleCue() {
+        if (Deck.contact || Deck.dropping) {
+          State.playing = false;
+          Deck.lift();
+          UI.updatePlayButton();
+        } else if (Player.isReady()) Player.play();
+      }
+    };
+
+    // ─── TONEARM ─────────────────────────────────────────────────
+    const Arm = {
+      th: 0, h: 0.25,       // rotation (deg) and height (0 in the groove .. 1 lifted)
+      mode: 'rest',         // rest | hover | groove | drag | move
+      kf: null, timer: 0, dragTh: 0, bob: 0,
+
+      /** Play a sequence of moves [{ d, th?, h?, land? }], then call `done`. Timed by the clock, not by frames. */
+      run(steps, done) {
+        clearTimeout(Arm.timer);
+        let t = performance.now() / 1000, th = Arm.th, h = Arm.h;
+        const t0 = t;
+        Arm.kf = steps.map(s => {
+          const k = { t0: t, t1: t + s.d, th0: th, th1: s.th ?? th, h0: h, h1: s.h ?? h, land: !!s.land };
+          t = k.t1; th = k.th1; h = k.h1;
+          return k;
+        });
+        Arm.timer = setTimeout(() => { Arm.kf = null; Arm.th = th; Arm.h = h; done?.(); }, (t - t0) * 1000);
+      },
+
+      stop() {
+        clearTimeout(Arm.timer);
+        if (Arm.kf) { Arm.sample(); Arm.kf = null; }
+      },
+
+      sample() {
+        const t = performance.now() / 1000, kf = Arm.kf;
+        const k = kf.find(k => t < k.t1) || kf[kf.length - 1];
+        const u = Utils.clamp((t - k.t0) / (k.t1 - k.t0), 0, 1), e = u * u * (3 - 2 * u);
+        Arm.th = k.th0 + (k.th1 - k.th0) * e;
+        // Damped cue: eases down, touches at 80%, then one small bounce.
+        if (k.land) {
+          const v = Math.min(1, u / 0.8), b = Math.max(0, (u - 0.8) / 0.2);
+          Arm.h = k.h1 + (k.h0 - k.h1) * (1 - v * v * (3 - 2 * v)) + 0.07 * Math.sin(Math.PI * b) * (1 - b);
+        } else Arm.h = k.h0 + (k.h1 - k.h0) * e;
+      },
+
+      swingTime: th1 => Math.min(C.ARM_SWING_S, 0.1 + Math.abs(th1 - Arm.th) * 0.02),
+
+      /** Lift if needed, swing over radius rn, lower, then `done`. */
+      cueTo(rn, slow, done) {
+        Arm.stop();
+        const th1 = Geo.angleFor(rn), steps = [];
+        if (Arm.h < 0.95) steps.push({ d: C.ARM_LIFT_S, h: 1 });
+        if (Math.abs(th1 - Arm.th) > 0.05) steps.push({ d: Arm.swingTime(th1), th: th1 });
+        steps.push({ d: slow ? C.ARM_LOWER_S : C.ARM_LOWER_FAST_S, h: 0, land: true });
+        Arm.mode = 'move';
+        Arm.run(steps, () => { Arm.mode = 'groove'; done(); });
+      },
+
+      /** Lift and hover, optionally swinging over radius rn. */
+      liftTo(rn) {
+        Arm.stop();
+        const steps = [{ d: C.ARM_LIFT_S, h: 1 }];
+        if (rn != null) { const th1 = Geo.angleFor(rn); steps.push({ d: Arm.swingTime(th1), th: th1 }); }
+        Arm.mode = 'move';
+        Arm.run(steps, () => { Arm.mode = 'hover'; });
+      },
+
+      park() {
+        Arm.stop();
+        if (Arm.mode === 'rest') return;
+        Arm.mode = 'move';
+        Arm.run([{ d: C.ARM_LIFT_S, h: 1 }, { d: 0.45, th: Geo.thRest }, { d: 0.3, h: 0.25 }], () => { Arm.mode = 'rest'; });
+      },
+
+      render(dt, bass) {
+        const k = tau => 1 - Math.exp(-dt / tau);
+        if (Arm.kf) Arm.sample();
+        else if (Arm.mode === 'groove' || Arm.mode === 'hover') {
+          // follows the groove; short seeks glide instead of jumping
+          Arm.th += (Geo.angleFor(Deck.stylusR()) - Arm.th) * k(C.ARM_GLIDE_TAU);
+          Arm.h += ((Arm.mode === 'hover' ? 1 : 0) - Arm.h) * k(0.05);
+        } else if (Arm.mode === 'drag') {
+          Arm.th += (Arm.dragTh - Arm.th) * k(C.ARM_INERTIA_TAU);
+          Arm.h += (1 - Arm.h) * k(0.05);
+        } else if (Arm.mode === 'rest') { Arm.th = Geo.thRest; Arm.h = 0.25; }
+
+        let th = Arm.th, h = Arm.h;
+        if (Arm.mode === 'groove' && !Loop.calm) {
+          th += (Math.random() - 0.5) * C.ARM_VIBRATION * bass * bass;       // the bass shakes the stylus a hair
+          h += 0.16 * Arm.bob; th -= 0.12 * Arm.bob;                         // locked-groove bob
+        }
+        Arm.bob *= Math.exp(-dt / 0.14);
+        UI.setArm(th, h);
       }
     };
 
@@ -2179,6 +2467,7 @@
     // ─── UI ──────────────────────────────────────────────────────
     const UI = {
       bumpTurntable() {
+        if (Loop.calm) return;
         DOM.turntable.classList.remove('bump');
         void DOM.turntable.offsetWidth;
         DOM.turntable.classList.add('bump');
@@ -2188,6 +2477,7 @@
         const txt = State.playing ? '⏸' : '▶';
         DOM.playBtn.textContent = State.playing ? '⏸ Pause' : '▶ Play';
         DOM.playBtn.classList.toggle('on', State.playing);
+        DOM.playBtn.setAttribute('aria-label', State.playing ? 'Pause' : 'Play');
         DOM.fcPlay.textContent = txt;
         DOM.fcPlay.classList.toggle('on', State.playing);
       },
@@ -2214,11 +2504,11 @@
       },
 
       updateRPM() {
+        if (!C.RPM[State.currentRPM]) State.currentRPM = 33;
         DOM.rpmSel.value = String(State.currentRPM);
         DOM.rpmSwitch.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.rpm === DOM.rpmSel.value));
         if (State.labelRPM !== State.currentRPM) { State.labelRPM = State.currentRPM; Render.schedule(); }
-        const cfg = Utils.rpmConfig();
-        DOM.audio.playbackRate = cfg.rate;
+        Engine.setSpeed();
       },
 
       renderSongInfo(track) {
@@ -2237,7 +2527,9 @@
         DOM.songNotes.textContent = track.notes || `Spinning "${track.name}".`;
       },
 
+      /** Rebuild the list. Every caller has changed the track list or a duration, so the record is redrawn too. */
       renderTracklist() {
+        Program.build();
         Render.schedule();
         DOM.tracklistOl.innerHTML = '';
         DOM.tracklistEmpty.style.display = State.playlist.length ? 'none' : 'block';
@@ -2258,36 +2550,28 @@
           rm.className = 'trk-rm'; rm.textContent = '✕';
           rm.title = 'Remove'; rm.setAttribute('aria-label', `Remove ${track.name}`);
           rm.addEventListener('click', e => {
-            e.stopPropagation(); AudioEngine.ensure(); AudioEngine.playClick();
+            e.stopPropagation(); Engine.ensure(); Sfx.click();
             Player.removeTrack(i);
           });
           li.append(title, artist, dur, rm);
           li.addEventListener('click', () => {
-            AudioEngine.ensure(); AudioEngine.playClick(); UI.bumpTurntable();
-            if (i === State.currentIdx) {
-              try { DOM.audio.currentTime = 0; } catch {}
-              if (!State.playing) Player.play();
-              return;
-            }
-            Player.stop(); Player.loadTrack(i); Player.play();
+            Engine.ensure(); Sfx.click(); UI.bumpTurntable();
+            Player.jumpTo(i, true);
           });
           DOM.tracklistOl.appendChild(li);
         });
+        State.lastRenderIdx = State.currentIdx;
+      },
+
+      markActive() {
+        State.lastRenderIdx = State.currentIdx;
+        const lis = DOM.tracklistOl.children;
+        for (let i = 0; i < lis.length; i++) lis[i].classList.toggle('active', i === State.currentIdx);
       },
 
       scrollActiveTrack() {
         const el = DOM.tracklistOl.querySelector('li.active');
-        if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      },
-
-      getNeedleAngle() {
-        if (!State.needleOn) return Geo.thRest;
-        return Geo.angleFor(Program.radius(State.currentIdx, Utils.getCurrentTime() || 0));
-      },
-
-      updateNeedle() {
-        if (State.armDragging) return;
-        UI.setArm(UI.getNeedleAngle(), State.needleOn ? 0 : 0.35);
+        if (el) el.scrollIntoView({ block: 'nearest', behavior: Loop.calm ? 'auto' : 'smooth' });
       },
 
       /** Rotate the arm and place its shadow. h = height above the record, 0 (in the groove) .. 1 (lifted). */
@@ -2295,26 +2579,16 @@
         const key = th.toFixed(3) + '|' + h.toFixed(2);
         if (key === State.lastArmKey) return;
         State.lastArmKey = key;
-        const u = Geo.R / 47.8;
-        DOM.tonearm.style.transform = `rotate(${th}deg)`;
+        const u = Geo.R / 47.8;      // 1% of the platter, in px
+        DOM.tonearm.style.transform = `rotate(${th}deg) scale(${1 + 0.012 * h})`;
+        // lifted = further from the surface: the shadow slides away from the light and softens
         DOM.armShadow.style.transform = `translate(${(0.9 + 3.2 * h) * u}px, ${(1.3 + 4.6 * h) * u}px) rotate(${th}deg)`;
-        DOM.armShadow.style.filter = `blur(${(0.5 + 1.9 * h) * u}px)`;
-        DOM.armShadow.style.opacity = String(0.55 - 0.27 * h);
+        DOM.armShadow.style.filter = `blur(${((0.5 + 1.9 * h) * u).toFixed(2)}px)`;
+        DOM.armShadow.style.opacity = (0.55 - 0.27 * h).toFixed(2);
         DOM.cueLever.classList.toggle('up', h > 0.5);
       },
 
-      setNeedle(on) {
-        if (State.needleOn !== on) AudioEngine.playClunk();
-        State.needleOn = on;
-        DOM.tonearm.classList.toggle('off', !on);
-        if (!on && State.playing) {
-          Player.stop();
-        }
-        AudioEngine.updateParams();
-        UI.updateNeedle();
-      },
-
-      /** The cursor only nudges the light direction by a few degrees (parallax), it no longer carries the highlight. */
+      /** The cursor only nudges the light direction by a few degrees (parallax); it no longer carries the highlight. */
       updateHighlight(cx, cy) {
         const r = DOM.vinylWrap.getBoundingClientRect();
         const dx = (cx - r.left - r.width / 2) / window.innerWidth, dy = (cy - r.top - r.height / 2) / window.innerHeight;
@@ -2329,7 +2603,7 @@
       },
 
       setCoverFromDataUrl(dataUrl) {
-        if (!dataUrl) return;
+        if (!dataUrl || dataUrl === State.coverDataUrl) return;
         State.coverDataUrl = dataUrl;
         Render.schedule();
         DOM.coverImg.src = dataUrl;
@@ -2342,7 +2616,8 @@
         const ctx = canvas.getContext('2d');
         const size = C.BASS_CANVAS_SIZE;
         ctx.clearRect(0, 0, size, size);
-        if (level < 0.02 || !State.playing) return;
+        State.ringDrawn = level >= 0.02;
+        if (!State.ringDrawn) return;
 
         const cx = size / 2, cy = size / 2;
         const labelR = size * C.LABEL_FRAC / 2 * (DOM.vinyl.offsetWidth / DOM.vinylWrap.offsetWidth);
@@ -2369,43 +2644,64 @@
     const Player = {
       isReady: () => State.trackLoaded && State.currentIdx >= 0 && State.currentIdx < State.playlist.length,
 
+      /** Play = start the motor if needed and lower the stylus. */
       play() {
         if (!Player.isReady()) return;
-
-        AudioEngine.ensure();
-        if (!State.needleOn) UI.setNeedle(true);
+        Engine.ensure();
+        State.playing = true;
+        Deck.setMotor(true);
+        if (!Deck.contact && !Deck.dropping) Deck.drop();
         UI.bumpTurntable();
-        if (State.scratchMode) AudioEngine.scratchBurst(true);
-        UI.updateRPM();
-        const p = DOM.audio.play();
-        if (p !== undefined) {
-          p.then(() => {
-            State.playing = true;
-            State.vinylVelocity = Utils.rpmConfig().visual;
-            UI.updatePlayButton();
-            AudioEngine.updateParams();
-            UI.scrollActiveTrack();
-            const track = State.playlist[State.currentIdx];
-            Utils.announce(`Now playing: ${track.name}${track.artist ? ' by ' + track.artist : ''}`);
-          }).catch(() => {
-            DOM.hint.textContent = 'Tap play again (browser blocked autoplay)';
-            State.playing = false;
-            UI.updatePlayButton();
-          });
-        } else {
-          State.playing = true;
-          State.vinylVelocity = Utils.rpmConfig().visual;
-          UI.updatePlayButton();
-          AudioEngine.updateParams();
-        }
+        UI.updatePlayButton();
+        UI.scrollActiveTrack();
+        const track = State.playlist[State.currentIdx];
+        Utils.announce(`Now playing: ${track.name}${track.artist ? ' by ' + track.artist : ''}`);
       },
 
+      /** Pause = lift the stylus; the platter coasts down unless it is set to keep spinning. */
       stop() {
-        if (State.playing && State.scratchMode) AudioEngine.scratchBurst(false);
-        DOM.audio.pause();
         State.playing = false;
+        if (Deck.contact || Deck.dropping) Deck.lift();
+        if (!Settings.v.keepSpinning) Deck.setMotor(false);
         UI.updatePlayButton();
-        AudioEngine.updateParams();
+      },
+
+      /** Go to a track: lift, swing over its groove, and lower if `play`. */
+      jumpTo(idx, play) {
+        if (idx < 0 || idx >= State.playlist.length) return;
+        Deck.unseat();
+        Player.loadTrack(idx);
+        if (play) Player.play();
+        else if (Arm.mode !== 'rest') Arm.liftTo(Deck.dropPoint().r);
+      },
+
+      /** Short seek inside the current track: the arm glides, no lift. */
+      seekTo(t) {
+        if (!Player.isReady()) return;
+        if (Deck.seg && Deck.seg.kind !== 'track') Deck.begin('track', State.currentIdx, t);
+        else Engine.seek(t);
+      },
+
+      /** The tonearm was let go over radius rn (record radii). */
+      dropAt(rn) {
+        const hit = Player.isReady() ? Program.locate(rn) : { kind: 'off' };
+        if (hit.kind === 'off') {                                   // off the record: back to the rest
+          State.playing = false;
+          Deck.park();
+          if (!Settings.v.keepSpinning) Deck.setMotor(false);
+          UI.updatePlayButton();
+          return;
+        }
+        const last = State.playlist.length - 1;
+        const pt = hit.kind === 'leadin' ? { kind: 'leadin', idx: 0, t: 0, r: N.DROP }
+          : hit.kind === 'runout' ? { kind: 'runout', idx: last, t: 0, r: Math.max(rn, N.LOCKED) }
+          : { kind: 'track', idx: hit.idx, t: hit.t, r: Program.radius(hit.idx, hit.t) };   // a gap resolves to the next track's start
+        if (pt.idx !== State.currentIdx) Player.loadTrack(pt.idx);
+        if (pt.kind !== 'runout') Engine.seek(pt.t);
+        State.playing = true;
+        Deck.setMotor(true);
+        Deck.drop(pt, true);
+        UI.updatePlayButton();
       },
 
       loadTrack(idx) {
@@ -2414,11 +2710,9 @@
         State.currentIdx = idx;
         State.trackLoaded = true;
         const track = State.playlist[idx];
-        DOM.audio.src = track.url;
-        UI.updateRPM();
+        Engine.load(track);
         DOM.hint.textContent = track.artist ? `${track.artist} — ${track.name}` : track.name;
-        State.lastRenderIdx = -2;
-        UI.renderTracklist();
+        UI.markActive();
         UI.renderSongInfo(track);
         if (track.coverDataUrl) {
           UI.setCoverFromDataUrl(track.coverDataUrl);
@@ -2456,7 +2750,7 @@
           const blob = new Blob([buffer], { type: mime });
           const url = URL.createObjectURL(blob);
           const entry = {
-            id, name, url, duration: 0,
+            id, name, url, blob, duration: 0,
             artist: meta.artist, album: meta.album,
             year: meta.year, genre: meta.genre,
             notes: '', coverDataUrl
@@ -2485,7 +2779,7 @@
         const t = new Audio();
         t.preload = 'metadata';
         let done = false;
-        const finish = v => { if (done) return; done = true; resolve(v); try { t.removeAttribute('src'); t.load(); } catch {} };
+        const finish = v => { if (done) return; done = true; resolve(isFinite(v) ? v : 0); try { t.removeAttribute('src'); t.load(); } catch {} };
         t.addEventListener('loadedmetadata', () => finish(t.duration || 0), { once: true });
         t.addEventListener('error', () => finish(0), { once: true });
         setTimeout(() => finish(0), 5000);
@@ -2503,17 +2797,18 @@
         try { order = JSON.parse(localStorage.getItem(C.TRACKS_KEY)); } catch { order = null; }
         const byId = {};
         rows.forEach(r => { byId[r.id] = r; });
-        const ordered = order ? order.filter(id => byId[id]).map(id => byId[id]) : rows;
+        const ordered = Array.isArray(order) ? order.filter(id => byId[id]).map(id => byId[id]) : rows;
         rows.forEach(r => { if (!ordered.includes(r)) ordered.push(r); });
 
         for (const r of ordered) {
           const blob = new Blob([r.buffer], { type: r.mime || 'audio/mpeg' });
           const url = URL.createObjectURL(blob);
           const entry = {
-            id: r.id, name: r.name, url, duration: 0,
+            id: r.id, name: r.name, url, blob, duration: 0,
             artist: r.artist || '', album: r.album || '',
             year: r.year || '', genre: r.genre || '',
-            notes: r.notes || '', coverDataUrl: r.coverDataUrl || ''
+            notes: r.notes || '', coverDataUrl: r.coverDataUrl || '',
+            rms: r.rms || null
           };
           State.playlist.push(entry);
           Player.probeDuration(url).then(d => {
@@ -2532,23 +2827,25 @@
         if (idx < 0 || idx >= State.playlist.length) return;
         const wasActive = idx === State.currentIdx;
         const wasPlaying = State.playing;
-        if (wasActive) Player.stop();
+        // the record is about to change under the stylus: lift it off first
+        if (wasActive) Deck.unseat();
+        else if (Deck.seg && Deck.seg.kind !== 'track') { State.playing = false; Deck.lift(); UI.updatePlayButton(); }
         URL.revokeObjectURL(State.playlist[idx].url);
         await Persistence.deleteTrack(State.playlist[idx].id);
         State.playlist.splice(idx, 1);
         if (!State.playlist.length) {
-          State.currentIdx = -1; State.trackLoaded = false;
-          try { DOM.audio.removeAttribute('src'); DOM.audio.load(); } catch {}
+          State.currentIdx = -1; State.trackLoaded = false; State.playing = false;
+          Engine.unload();
           DOM.hint.textContent = 'Load audio files to start';
           DOM.time.textContent = '0:00 / 0:00';
-          UI.setNeedle(false); UI.renderSongInfo(null);
+          Deck.park(); Deck.setMotor(false);
+          UI.updatePlayButton(); UI.renderSongInfo(null);
         } else if (wasActive) {
-          Player.loadTrack(Math.min(idx, State.playlist.length - 1));
-          if (wasPlaying) Player.play();
+          Player.jumpTo(Math.min(idx, State.playlist.length - 1), wasPlaying);
         } else if (idx < State.currentIdx) {
           State.currentIdx--;
+          if (Deck.seg) { Deck.seg.idx--; Deck.seg.from--; }
         }
-        State.lastRenderIdx = -2;
         UI.renderTracklist(); UI.updateNavButtons();
         Persistence.saveOrder();
         if (State.shuffleOn) Player.rebuildShuffleQueue();
@@ -2600,22 +2897,27 @@
         return State.currentIdx > 0 ? State.currentIdx - 1 : State.playlist.length - 1;
       },
 
+      /** The stylus reached the end of a track. */
       onTrackEnd() {
-        const nextIdx = Player.getNextIdx();
-        if (nextIdx >= 0 && nextIdx < State.playlist.length) {
-          Player.stop();
-          Player.loadTrack(nextIdx);
-          Player.play();
-        } else {
-          Player.stop();
-          try { DOM.audio.currentTime = 0; } catch {}
-        }
+        if (!Deck.contact || Deck.seg?.kind !== 'track') return;
+        const cur = State.currentIdx, next = Player.getNextIdx();
+        if (next < 0) Deck.begin('runout', cur);                               // end of the record: into the run-out
+        else if (next === cur + 1) Deck.begin('gap', next, 0, cur);            // next band: ride the gap into it
+        else Player.jumpTo(next, true);                                        // shuffle / repeat: lift and relocate
+      },
+
+      /** Auto-return: arm home, motor off. */
+      finish() {
+        State.playing = false;
+        Deck.park();
+        Deck.setMotor(false);
+        UI.updatePlayButton();
+        Utils.announce('End of record');
       },
 
       async setCoverFromFile(file) {
-        AudioEngine.ensure();
-        AudioEngine.playClick();
-        if (State.coverUrl) URL.revokeObjectURL(State.coverUrl);
+        Engine.ensure();
+        Sfx.click();
         const dataUrl = await Utils.blobToDataUrl(file);
         UI.setCoverFromDataUrl(dataUrl);
         Persistence.saveCover(dataUrl);
@@ -2725,123 +3027,79 @@
     };
 
     // ─── EVENTS ──────────────────────────────────────────────────
+    // Pointer Events throughout: one path for mouse, touch and pen.
     const Events = {
+      arm: null,   // tonearm drag in progress
+
+      // ── Hand on the record ──
       vinylDown(e) {
-        if (!Player.isReady() || State.armDragging) return;
+        if (e.button > 0 || Deck.held || Events.arm) return;
         e.preventDefault();
-        AudioEngine.ensure();
-        if (State.scratchMode) AudioEngine.startScratch();
-        else AudioEngine.playWhoosh(false);
-
-        State.vinylDragging = true;
-        State.vinylWasPlaying = State.playing;
+        Engine.ensure();
+        try { DOM.vinylWrap.setPointerCapture(e.pointerId); } catch {}
+        Sfx.whoosh(false);
+        Deck.step();
+        Deck.held = true;
+        Deck.hand = Deck.angR;
+        Deck.handPrev = Utils.pointerAngle(DOM.vinylWrap, e.clientX, e.clientY);
         DOM.vinylWrap.classList.add('dragging');
-        AudioEngine.updateParams();
-        const p = Utils.getPointer(e);
-        State.dragStartAngle = Utils.pointerAngle(DOM.vinylWrap, p.x, p.y);
-        State.dragBaseAngle = State.vinylAngle;
-        State.dragStartTime = Utils.getCurrentTime();
-        State.prevDragAngle = State.dragStartAngle;
-
-        DOM.audio.pause();
-        State.vinylVelocity = 0;
+        Engine.hold(true);
       },
 
       vinylMove(e) {
-        if (!State.vinylDragging) return;
-        e.preventDefault();
-        const p = Utils.getPointer(e);
-        const a = Utils.pointerAngle(DOM.vinylWrap, p.x, p.y);
-        const total = Utils.wrapDelta(a, State.dragStartAngle);
-        State.vinylAngle = State.dragBaseAngle + total;
-        Events.scrub(total);
-        State.vinylVelocity = Utils.wrapDelta(a, State.prevDragAngle) * 0.5;
-        State.prevDragAngle = a;
-        if (State.scratchMode) AudioEngine.updateScratch(State.vinylVelocity);
+        if (!Deck.held) return;
+        const a = Utils.pointerAngle(DOM.vinylWrap, e.clientX, e.clientY);
+        Deck.hand += Utils.wrapDelta(a, Deck.handPrev);
+        Deck.handPrev = a;
+        Engine.hand();
       },
 
       vinylUp() {
-        if (!State.vinylDragging) return;
-        if (State.scratchMode) AudioEngine.stopScratch();
-        else AudioEngine.playWhoosh(true);
-
-        State.vinylDragging = false;
+        if (!Deck.held) return;
+        Deck.step();
+        Deck.held = false;           // from here the record slips back up to platter speed
         DOM.vinylWrap.classList.remove('dragging');
-        AudioEngine.updateParams();
-
-        if (State.vinylWasPlaying && State.needleOn) {
-          Player.play();
-        }
+        Sfx.whoosh(true);
+        Engine.hold(false);
       },
 
-      scrub(totalDeg) {
-        const s = State.scratchMode ? C.SEC_PER_DEG_SCRATCH : C.SEC_PER_DEG;
-        const d = Utils.safeDuration();
-        if (d <= 0) return;
-        try { DOM.audio.currentTime = Utils.clamp(State.dragStartTime + totalDeg * s, 0, d); } catch {}
-      },
+      // ── Tonearm ──
+      pivotAngle: (pv, e) => Math.atan2(e.clientY - pv.y, e.clientX - pv.x) * 180 / Math.PI - 90,
 
       armDown(e) {
+        if (e.button > 0 || Events.arm) return;
         e.preventDefault(); e.stopPropagation();
-        AudioEngine.ensure(); AudioEngine.playClick();
-        if (State.scratchMode) AudioEngine.startScratch();
-        const pivot = Utils.getArmPivot();
-        State.armPivotX = pivot.x; State.armPivotY = pivot.y;
-        State.armDragging = true; State.armDidMove = false;
-        State.armStartAngle = Utils.readArmAngle();
-        const p = Utils.getPointer(e);
-        State.armStartPointerAngle = Events.pivotAngle(p.x, p.y);
-        State.prevArmAngle = State.armStartPointerAngle;
+        Engine.ensure(); Sfx.click();
+        try { DOM.tonearm.setPointerCapture(e.pointerId); } catch {}
+        const pv = Utils.getArmPivot();
+        if (Arm.kf) Arm.sample();
+        Events.arm = { pv, start: Events.pivotAngle(pv, e), th0: Arm.th, moved: false };
         DOM.tonearm.classList.add('arm-dragging');
       },
 
-      pivotAngle: (px, py) => Math.atan2(py - State.armPivotY, px - State.armPivotX) * 180 / Math.PI - 90,
-
       armMove(e) {
-        if (!State.armDragging) return;
-        e.preventDefault();
-        State.armDidMove = true;
-        const p = Utils.getPointer(e);
-        const cur = Events.pivotAngle(p.x, p.y);
-        const vel = Utils.wrapDelta(cur, State.prevArmAngle);
-        State.prevArmAngle = cur;
-        if (State.scratchMode) AudioEngine.updateScratch(vel * 2);
-        const delta = Utils.wrapDelta(cur, State.armStartPointerAngle);
-        const band = Program.bands[State.currentIdx] || { r0: N.OUT, r1: N.IN };
-        const aStart = Geo.angleFor(band.r0), aEnd = Geo.angleFor(band.r1);
-        const angle = Utils.clamp(State.armStartAngle + delta, Geo.thRest, aEnd);
-        UI.setArm(angle, 0.6);
-        const d = Utils.safeDuration();
-        if (angle >= aStart && d > 0 && Player.isReady()) {
-          if (!State.needleOn) { AudioEngine.playClunk(); State.needleOn = true; DOM.tonearm.classList.remove('off'); AudioEngine.updateParams(); }
-
-          const pct = Utils.clamp((angle - aStart) / (aEnd - aStart), 0, 1);
-          try { DOM.audio.currentTime = pct * d; } catch {}
-        } else if (State.needleOn) {
-          AudioEngine.playClunk(); State.needleOn = false;
-          DOM.tonearm.classList.add('off'); AudioEngine.updateParams();
+        const d = Events.arm;
+        if (!d) return;
+        const delta = Utils.wrapDelta(Events.pivotAngle(d.pv, e), d.start);
+        if (!d.moved) {
+          if (Math.abs(delta) < 0.5) return;       // a click, not a drag
+          d.moved = true;
+          Deck.unseat();                           // picking the arm up lifts the stylus
+          Arm.stop();
+          Arm.mode = 'drag';
+          Sfx.cue();
         }
+        // constrained to the arc the pivot allows, from the rest to the locked groove
+        Arm.dragTh = Utils.clamp(d.th0 + delta, Geo.thRest - 1, Geo.angleFor(N.LOCKED));
       },
 
       armUp() {
-        if (!State.armDragging) return;
-        if (State.scratchMode) AudioEngine.stopScratch();
-        State.armDragging = false;
+        const d = Events.arm;
+        if (!d) return;
+        Events.arm = null;
         DOM.tonearm.classList.remove('arm-dragging');
-        if (!State.armDidMove) {
-          if (State.needleOn) UI.setNeedle(false);
-          else if (Player.isReady()) { AudioEngine.ensure(); UI.setNeedle(true); Player.play(); }
-          return;
-        }
-        const final = Utils.readArmAngle();
-        if (final >= Geo.angleFor((Program.bands[State.currentIdx] || { r0: N.OUT }).r0) && Player.isReady()) {
-          if (!State.needleOn) { AudioEngine.playClunk(); State.needleOn = true; DOM.tonearm.classList.remove('off'); AudioEngine.updateParams(); }
-          Player.play();
-        } else {
-          if (State.needleOn) { AudioEngine.playClunk(); State.needleOn = false; DOM.tonearm.classList.add('off'); AudioEngine.updateParams(); }
-          if (State.playing) Player.stop();
-          UI.updateNeedle();
-        }
+        if (!d.moved) { Deck.toggleCue(); return; }
+        Player.dropAt(Geo.radiusFor(Arm.dragTh));
       },
 
       setupDragDrop() {
@@ -2861,7 +3119,7 @@
           State.dragCounter = 0; DOM.dropOverlay.classList.remove('active');
           const files = Array.from(e.dataTransfer?.files || []);
           if (!files.length) return;
-          AudioEngine.ensure();
+          Engine.ensure();
           const audioFiles = files.filter(f => f.type.startsWith('audio/') || /\.(mp3|wav|ogg|flac|m4a|aac|opus|wma)$/i.test(f.name));
           const imageFiles = files.filter(f => f.type.startsWith('image/'));
           if (imageFiles.length > 0) Player.setCoverFromFile(imageFiles[0]);
@@ -2872,29 +3130,26 @@
       setupKeyboard() {
         document.addEventListener('keydown', e => {
           if (e.target.isContentEditable || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+          if (e.metaKey || e.ctrlKey || e.altKey) return;
           switch (e.key) {
             case ' ':
               e.preventDefault();
-              AudioEngine.ensure(); AudioEngine.playClick();
+              Engine.ensure(); Sfx.click();
               if (!Player.isReady()) return;
               if (State.playing) Player.stop();
-              else { if (State.currentIdx < 0) Player.loadTrack(0); Player.play(); }
+              else Player.play();
               break;
             case 'ArrowLeft':
               e.preventDefault();
               if (State.trackLoaded) {
-                try {
-                  const ct = DOM.audio.currentTime;
-                  if (ct > 3) DOM.audio.currentTime = Math.max(0, ct - 5);
-                  else { const wasP = State.playing; Player.stop(); Player.loadTrack(Player.getPrevIdx()); if (wasP) Player.play(); }
-                } catch {}
+                const ct = Engine.pos();
+                if (ct > 3) Player.seekTo(Math.max(0, ct - 5));
+                else Player.jumpTo(Player.getPrevIdx(), State.playing);
               }
               break;
             case 'ArrowRight':
               e.preventDefault();
-              if (State.trackLoaded) {
-                try { DOM.audio.currentTime = Math.min(Utils.safeDuration(), DOM.audio.currentTime + 5); } catch {}
-              }
+              if (State.trackLoaded) Player.seekTo(Math.min(Engine.dur(), Engine.pos() + 5));
               break;
             case 'ArrowUp':
               e.preventDefault();
@@ -2925,50 +3180,54 @@
       },
 
       setupGlobal() {
-        document.addEventListener('pointermove', e => {
-          Events.vinylMove(e); Events.armMove(e);
-          UI.updateHighlight(e.clientX, e.clientY);
-        });
-        const up = () => { Events.vinylUp(); Events.armUp(); };
-        document.addEventListener('pointerup', up);
-        document.addEventListener('pointercancel', up);
+        document.addEventListener('pointermove', e => UI.updateHighlight(e.clientX, e.clientY), { passive: true });
+
+        DOM.vinylWrap.addEventListener('pointerdown', Events.vinylDown);
+        DOM.vinylWrap.addEventListener('pointermove', Events.vinylMove);
+        DOM.vinylWrap.addEventListener('pointerup', Events.vinylUp);
+        DOM.vinylWrap.addEventListener('pointercancel', Events.vinylUp);
+        DOM.vinylWrap.addEventListener('lostpointercapture', Events.vinylUp);
+
+        DOM.tonearm.addEventListener('pointerdown', Events.armDown);
+        DOM.tonearm.addEventListener('pointermove', Events.armMove);
+        DOM.tonearm.addEventListener('pointerup', Events.armUp);
+        DOM.tonearm.addEventListener('pointercancel', Events.armUp);
+        DOM.tonearm.addEventListener('lostpointercapture', Events.armUp);
+
+        document.addEventListener('visibilitychange', () => document.hidden ? Loop.pause() : Loop.start());
+        new ResizeObserver(Render.schedule).observe(DOM.turntable);
+        // Playback logic must not wait for frames: keep stepping while the tab is hidden.
+        setInterval(Deck.step, 250);
       },
 
       setupControls() {
         DOM.playBtn.addEventListener('click', () => {
-          AudioEngine.ensure(); AudioEngine.playClick();
+          Engine.ensure(); Sfx.click();
           if (!Player.isReady()) return;
           if (State.playing) { Player.stop(); return; }
-          if (State.currentIdx < 0) Player.loadTrack(0);
           Player.play();
         });
 
         const prevAction = () => {
-          AudioEngine.ensure(); AudioEngine.playClick(); UI.bumpTurntable();
+          Engine.ensure(); Sfx.click(); UI.bumpTurntable();
           if (!State.playlist.length) return;
-          const wasPlaying = State.playing;
-          try { if (DOM.audio.currentTime > 3 && State.currentIdx >= 0) { DOM.audio.currentTime = 0; return; } } catch {}
-          Player.stop();
-          Player.loadTrack(Player.getPrevIdx());
-          if (wasPlaying) Player.play();
+          if (Engine.pos() > 3 && State.currentIdx >= 0) { Player.jumpTo(State.currentIdx, State.playing); return; }
+          Player.jumpTo(Player.getPrevIdx(), State.playing);
         };
         DOM.prevBtn.addEventListener('click', prevAction);
 
         const nextAction = () => {
-          AudioEngine.ensure(); AudioEngine.playClick(); UI.bumpTurntable();
+          Engine.ensure(); Sfx.click(); UI.bumpTurntable();
           if (!State.playlist.length) return;
-          const wasPlaying = State.playing;
-          Player.stop();
           const nextIdx = State.shuffleOn && State.shuffleQueue.length > 0
             ? Player.getNextIdx()
             : (State.currentIdx < State.playlist.length - 1 ? State.currentIdx + 1 : 0);
-          Player.loadTrack(nextIdx >= 0 ? nextIdx : 0);
-          if (wasPlaying) Player.play();
+          Player.jumpTo(nextIdx >= 0 ? nextIdx : 0, State.playing);
         };
         DOM.nextBtn.addEventListener('click', nextAction);
 
         DOM.shuffleBtn.addEventListener('click', () => {
-          AudioEngine.ensure(); AudioEngine.playClick();
+          Engine.ensure(); Sfx.click();
           State.shuffleOn = !State.shuffleOn;
           if (State.shuffleOn) Player.rebuildShuffleQueue();
           UI.updateShuffleBtn();
@@ -2976,18 +3235,67 @@
         });
 
         DOM.repeatBtn.addEventListener('click', () => {
-          AudioEngine.ensure(); AudioEngine.playClick();
+          Engine.ensure(); Sfx.click();
           State.repeatMode = (State.repeatMode + 1) % 3;
           UI.updateRepeatBtn();
           Persistence.savePrefs();
         });
 
+        // Speed: the detented switch drives the kept (hidden) select, so saved prefs and scripts keep working
+        DOM.rpmSwitch.addEventListener('click', e => {
+          const b = e.target.closest('button[data-rpm]');
+          if (!b || DOM.rpmSel.value === b.dataset.rpm) return;
+          DOM.rpmSel.value = b.dataset.rpm;
+          DOM.rpmSel.dispatchEvent(new Event('change'));
+        });
         DOM.rpmSel.addEventListener('change', () => {
-          AudioEngine.ensure(); AudioEngine.playClick();
+          Engine.ensure(); Sfx.detent();
           State.currentRPM = parseInt(DOM.rpmSel.value);
           UI.updateRPM();
-          if (State.playing) State.vinylVelocity = Utils.rpmConfig().visual;
           Persistence.savePrefs();
+        });
+
+        DOM.motorBtn.addEventListener('click', () => {
+          Engine.ensure(); Sfx.click();
+          const on = !Deck.motorOn;
+          Deck.setMotor(on);
+          State.playing = on && Deck.contact;      // stylus already down: the music winds up or down with the platter
+          UI.updatePlayButton();
+        });
+
+        DOM.pitchSlider.addEventListener('input', () => {
+          let v = parseFloat(DOM.pitchSlider.value);
+          if (Math.abs(v) < 0.35) { v = 0; DOM.pitchSlider.value = 0; }     // centre detent
+          Settings.v.pitch = v;
+          Settings.apply(); Settings.save();
+          Engine.setSpeed();
+          DOM.hint.textContent = 'Pitch ' + Settings.pitchText();
+          UI.flashEQ(DOM.pitchLabel);
+        });
+        DOM.pitchSlider.addEventListener('dblclick', () => {
+          DOM.pitchSlider.value = 0;
+          DOM.pitchSlider.dispatchEvent(new Event('input'));
+        });
+
+        DOM.condSel.addEventListener('change', () => {
+          Engine.ensure(); Sfx.click();
+          Settings.v.condition = DOM.condSel.value;
+          Settings.apply(); Settings.save();
+          Wear.build();
+          Render.schedule();
+          Engine.updateParams();
+        });
+        DOM.impSlider.addEventListener('input', () => {
+          Settings.v.imperfection = parseFloat(DOM.impSlider.value);
+          Settings.apply(); Settings.save();
+          Engine.updateParams();
+        });
+        [['keepSpinChk', 'keepSpinning'], ['autoReturnChk', 'autoReturn']].forEach(([id, key]) => {
+          DOM[id].addEventListener('change', () => {
+            Engine.ensure(); Sfx.click();
+            Settings.v[key] = DOM[id].checked;
+            Settings.save();
+          });
         });
 
         DOM.coverIn.addEventListener('change', e => {
@@ -2997,7 +3305,7 @@
         });
 
         DOM.audioIn.addEventListener('change', e => {
-          AudioEngine.ensure(); AudioEngine.playClick();
+          Engine.ensure(); Sfx.click();
           if (e.target.files.length) Player.addFiles(Array.from(e.target.files));
           DOM.audioIn.value = '';
         });
@@ -3005,54 +3313,43 @@
         const eqPairs = [[DOM.bassSlider, DOM.bassLabel],[DOM.midSlider, DOM.midLabel],[DOM.trebleSlider, DOM.trebleLabel]];
         eqPairs.forEach(([slider, label]) => {
           slider.addEventListener('input', () => {
-            AudioEngine.ensure(); AudioEngine.updateParams();
+            Engine.ensure(); Engine.updateParams();
             UI.flashEQ(label); Persistence.savePrefs();
           });
         });
 
         DOM.vol.addEventListener('input', () => {
-          AudioEngine.ensure();
-          AudioEngine.updateParams();
+          Engine.ensure();
+          Engine.updateParams();
           Persistence.savePrefs();
         });
 
         DOM.noiseSlider.addEventListener('input', () => {
-          AudioEngine.ensure(); AudioEngine.updateParams(); Persistence.savePrefs();
+          Engine.ensure(); Engine.updateParams(); Persistence.savePrefs();
         });
 
         DOM.sfxChk.addEventListener('change', () => {
-          AudioEngine.ensure(); AudioEngine.playClick();
+          Engine.ensure();
           State.effectsEnabled = DOM.sfxChk.checked;
+          Sfx.click();
           Persistence.savePrefs();
         });
         DOM.scratchChk.addEventListener('change', () => {
-          AudioEngine.ensure(); AudioEngine.playClick();
+          Engine.ensure(); Sfx.click();
           State.scratchMode = DOM.scratchChk.checked;
           Persistence.savePrefs();
         });
 
         DOM.themeSel.addEventListener('change', () => {
-          AudioEngine.ensure(); AudioEngine.playClick();
+          Engine.ensure(); Sfx.click();
           DOM.app.classList.remove('theme-wood', 'theme-clear');
           if (DOM.themeSel.value) DOM.app.classList.add(DOM.themeSel.value);
           Render.schedule();
           Persistence.savePrefs();
         });
 
-        DOM.rpmSwitch.addEventListener('click', e => {
-          const b = e.target.closest('button[data-rpm]');
-          if (!b || DOM.rpmSel.value === b.dataset.rpm) return;
-          DOM.rpmSel.value = b.dataset.rpm;
-          DOM.rpmSel.dispatchEvent(new Event('change'));
-        });
-        DOM.cueLever.addEventListener('click', () => DOM.liftArmBtn.click());
-        DOM.deckToggle.addEventListener('click', () => {
-          AudioEngine.ensure(); AudioEngine.playClick();
-          DOM.deckToggle.setAttribute('aria-expanded', DOM.deckWrap.classList.toggle('open'));
-        });
-
         DOM.modeBtn.addEventListener('click', () => {
-          AudioEngine.ensure(); AudioEngine.playClick();
+          Engine.ensure(); Sfx.click();
           if (State.hasCustomColors) {
             DOM.hint.textContent = 'Reset custom colours to use light/dark toggle';
             return;
@@ -3064,7 +3361,7 @@
         });
 
         DOM.focusBtn.addEventListener('click', () => {
-          AudioEngine.ensure(); AudioEngine.playClick();
+          Engine.ensure(); Sfx.click();
           const on = DOM.app.classList.toggle('focus');
           DOM.focusBtn.textContent = on ? '⛶ Exit Focus' : '⛶ Focus';
           DOM.focusBtn.classList.toggle('on', on);
@@ -3082,96 +3379,133 @@
         DOM.fcSeek.addEventListener('click', e => {
           const rect = DOM.fcSeek.getBoundingClientRect();
           const pct = Utils.clamp((e.clientX - rect.left) / rect.width, 0, 1);
-          const d = Utils.safeDuration();
-          if (d > 0) {
-            try { DOM.audio.currentTime = pct * d; } catch {}
-          }
+          const d = Engine.dur();
+          if (d > 0) Player.seekTo(pct * d);
         });
 
-        DOM.aboutToggle.addEventListener('click', () => {
-          AudioEngine.ensure(); AudioEngine.playClick();
-          const isOpen = DOM.aboutWrap.classList.toggle('open');
-          DOM.aboutToggle.setAttribute('aria-expanded', isOpen);
+        const wireToggle = (btn, wrap) => btn.addEventListener('click', () => {
+          Engine.ensure(); Sfx.click();
+          btn.setAttribute('aria-expanded', wrap.classList.toggle('open'));
         });
+        wireToggle(DOM.aboutToggle, DOM.aboutWrap);
+        wireToggle(DOM.deckToggle, DOM.deckWrap);
 
-        DOM.liftArmBtn.addEventListener('click', () => {
-          AudioEngine.ensure(); AudioEngine.playClick();
-          if (State.needleOn) {
-            UI.setNeedle(false);
-          } else if (Player.isReady()) {
-            UI.setNeedle(true);
-            Player.play();
-          }
-        });
-
-        DOM.vinylWrap.addEventListener('pointerdown', Events.vinylDown);
-        DOM.tonearm.addEventListener('pointerdown', Events.armDown);
+        const cue = () => { Engine.ensure(); Sfx.click(); Deck.toggleCue(); };
+        DOM.liftArmBtn.addEventListener('click', cue);
+        DOM.cueLever.addEventListener('click', cue);
       },
 
       setupAudio() {
         DOM.audio.addEventListener('ended', Player.onTrackEnd);
+        DOM.audio.addEventListener('error', () => {
+          if (!DOM.audio.getAttribute('src') || !Player.isReady()) return;
+          DOM.hint.textContent = `Can't play "${State.playlist[State.currentIdx].name}" (unsupported or damaged file)`;
+          if (State.playing) Player.stop();
+        });
       }
     };
 
-    // ─── ANIMATION ───────────────────────────────────────────────
-    const Animation = {
-      tick(ts) {
-        const dt = State.lastTimestamp ? Math.min(ts - State.lastTimestamp, 50) : 16.67;
-        State.lastTimestamp = ts;
-        const scale = dt / 16.67;
+    // ─── FRAME LOOP (draws; the physics and playback logic live in Deck.step) ──
+    const Loop = {
+      id: 0, last: 0, timeStr: '', pct: -1, aria: -1,
+      calm: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || false,
 
-        if (!State.vinylDragging) {
-          if (State.playing && State.needleOn) {
-            State.vinylVelocity = Utils.rpmConfig().visual;
-          } else {
-            State.vinylVelocity *= C.VINYL_FRICTION;
-            if (Math.abs(State.vinylVelocity) < C.VINYL_MIN_VEL) State.vinylVelocity = 0;
-          }
-          State.vinylAngle += State.vinylVelocity * scale;
-        }
+      start() {
+        if (Loop.id || document.hidden) return;
+        Loop.last = 0;
+        Loop.id = requestAnimationFrame(Loop.frame);
+      },
 
-        DOM.vinyl.style.transform = `rotate(${State.vinylAngle}deg)`;
+      pause() { cancelAnimationFrame(Loop.id); Loop.id = 0; },
+
+      /** Write a transform only when it changed. */
+      tf(el, v) { if (el._tf !== v) el.style.transform = el._tf = v; },
+
+      frame(ts) {
+        const dt = Loop.last ? Math.min((ts - Loop.last) / 1000, 0.1) : 1 / 60;
+        Loop.last = ts;
+        Debug?.frame(ts);
+        Deck.step();
+
+        // Record and strobe marks turn as GPU transforms on their own layers.
+        const imp = Loop.calm ? 0 : Settings.v.imperfection;
+        const a = Deck.angR % 360;
+        // an off-centre pressing: the centre hole is a hair out, so the whole record wobbles once per turn
+        Loop.tf(DOM.vinyl, `rotate(${a.toFixed(2)}deg) translate(${(imp * C.ECCENTRIC * Geo.R).toFixed(2)}px, 0)`);
+        // ...and a slight warp makes the light flicker with it
+        Loop.tf(DOM.sheen, `rotate(${(imp * C.WARP_DEG * Math.sin(a * Math.PI / 180)).toFixed(2)}deg)`);
+        Loop.tf(DOM.strobe, `rotate(${Deck.strobe.toFixed(2)}deg)`);
+        const blur = (1 - Utils.clamp(Math.abs(Deck.strobeV) / 240, 0, 0.72)).toFixed(2);   // fast marks smear
+        if (DOM.strobe._op !== blur) DOM.strobe.style.opacity = DOM.strobe._op = blur;
+        if (State.matVisible) Loop.tf(DOM.slipmat, `rotate(${(Deck.angP % 360).toFixed(2)}deg)`);
+
+        const bass = Deck.contact && State.analyser ? Engine.getBassLevel() : 0;
+        Arm.render(dt, bass);
 
         if (Player.isReady()) {
-          const d = Utils.safeDuration();
-          const ct = Utils.getCurrentTime() || 0;
+          const d = Engine.dur(), ct = Engine.pos();
           const timeStr = `${Utils.formatTime(ct)} / ${Utils.formatTime(d)}`;
-          DOM.time.textContent = timeStr;
-          DOM.fcTime.textContent = Utils.formatTime(ct);
-          DOM.fcDur.textContent = Utils.formatTime(d);
-
-          if (d > 0) {
-            const pct = (ct / d) * 100;
+          if (timeStr !== Loop.timeStr) {
+            Loop.timeStr = timeStr;
+            DOM.time.textContent = timeStr;
+            DOM.fcTime.textContent = Utils.formatTime(ct);
+            DOM.fcDur.textContent = Utils.formatTime(d);
+          }
+          const pct = d > 0 ? Math.round(ct / d * 1000) / 10 : 0;
+          if (pct !== Loop.pct) {
+            Loop.pct = pct;
             DOM.fcSeekFill.style.width = pct + '%';
+            DOM.fcSeek.setAttribute('aria-valuenow', Math.round(pct));
           }
-
-          UI.updateNeedle();
-
-          if (State.currentIdx !== State.lastRenderIdx) {
-            State.lastRenderIdx = State.currentIdx;
-            const lis = DOM.tracklistOl.children;
-            for (let i = 0; i < lis.length; i++) lis[i].classList.toggle('active', i === State.currentIdx);
-          }
+          // the tonearm is a slider across the whole record
+          const across = Math.round(Utils.clamp((N.OUT - Geo.radiusFor(Arm.th)) / (N.OUT - N.IN), 0, 1) * 100);
+          if (across !== Loop.aria) { Loop.aria = across; DOM.tonearm.setAttribute('aria-valuenow', across); }
+          if (State.currentIdx !== State.lastRenderIdx) UI.markActive();
         }
 
-        if (State.playing && State.needleOn && State.analyser) {
-          const level = AudioEngine.getBassLevel();
-          UI.drawBassRing(level);
-        } else if (!State.playing) {
-          const ctx = DOM.bassCanvas.getContext('2d');
-          ctx.clearRect(0, 0, C.BASS_CANVAS_SIZE, C.BASS_CANVAS_SIZE);
-        }
+        if (bass > 0 || State.ringDrawn) UI.drawBassRing(bass);
 
-        requestAnimationFrame(Animation.tick);
+        Loop.id = requestAnimationFrame(Loop.frame);
       }
     };
+
+    // ─── DEBUG / SELF-TEST (only with ?debug or ?selftest in the URL) ──
+    const Query = new URLSearchParams(location.search);
+    const Debug = Query.has('debug') ? {
+      frames: [],
+      frame(ts) { if (Debug.frames.push(ts) > 1200) Debug.frames.shift(); }
+    } : null;
+    if (Debug) window.__deck = { Debug, Deck, Arm, Engine, Geo, Program, Player, Settings, State, N, C };
+
+    /** Asserts on the geometry and the track-to-groove mapping. */
+    function selfTest() {
+      const ok = (cond, msg) => { console.assert(cond, msg); return cond; };
+      let pass = true;
+      for (const rn of [N.LOCKED, N.IN, 0.7, N.OUT, 1.05]) {
+        pass = ok(Math.abs(Geo.radiusFor(Geo.angleFor(rn)) - rn) < 1e-6, `arm angle round trip at r=${rn}`) && pass;
+      }
+      pass = ok(Geo.angleFor(N.OUT) > Geo.thRest && Geo.angleFor(N.LOCKED) > Geo.angleFor(N.OUT), 'arm swings inward from the rest') && pass;
+      pass = ok(Geo.D + Geo.L > Geo.R && Math.abs(Geo.D - Geo.L) < N.LOCKED * Geo.R, 'stylus can reach the locked groove') && pass;
+      State.playlist.forEach((t, i) => {
+        const b = Program.bands[i];
+        for (const f of [0.01, 0.5, 0.99]) {
+          const hit = Program.locate(Program.radius(i, f * b.dur));
+          pass = ok(hit.kind === 'track' && hit.idx === i && Math.abs(hit.t - f * b.dur) < 1e-6, `track ${i} locate round trip at ${f}`) && pass;
+        }
+        if (i > 0) pass = ok(Program.locate((Program.bands[i - 1].r1 + b.r0) / 2).idx === i, `gap before track ${i} resolves to its start`) && pass;
+      });
+      pass = ok(Program.locate(1.01).kind === 'off' && Program.locate(N.LOCKED).kind === (State.playlist.length ? 'runout' : 'off'), 'edges') && pass;
+      console.log(pass ? 'selftest ok' : 'selftest FAILED');
+      return pass;
+    }
 
     // ─── INITIALIZATION ──────────────────────────────────────────
     const init = async () => {
       initDOM();
+      DOM.sheen = DOM.vinylWrap.querySelector('.vinyl-sheen');
       Geo.update();
       Theming.loadPrefs();
-      new ResizeObserver(Render.schedule).observe(DOM.turntable);
+      Settings.load();
       Theming.wireColor(DOM.accentPick, DOM.accentHex, Theming.applyAccent);
       Theming.wireColor(DOM.bgPick, DOM.bgHex, Theming.applyBg);
       Theming.wireColor(DOM.surfacePick, DOM.surfaceHex, Theming.applySurface);
@@ -3198,16 +3532,18 @@
       } catch (e) { console.warn('DB init failed:', e); }
 
       UI.renderTracklist();
-      UI.renderSongInfo(null);
+      UI.renderSongInfo(State.playlist[State.currentIdx] || null);
       UI.updateShuffleBtn();
       UI.updateRepeatBtn();
+      UI.updatePlayButton();
 
       window.addEventListener('beforeunload', () => {
         State.playlist.forEach(t => { try { URL.revokeObjectURL(t.url); } catch {} });
-        if (State.coverUrl) try { URL.revokeObjectURL(State.coverUrl); } catch {}
       });
 
-      requestAnimationFrame(Animation.tick);
+      Render.all();
+      Loop.start();
+      if (Query.has('selftest')) selfTest();
     };
 
     init();
