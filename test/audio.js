@@ -36,6 +36,8 @@ function pureWav(freq, seconds, sr = 48000) {
   const st = () => p.evaluate(() => { const { Deck, Engine } = window.__deck; return { wr: Deck.wr, wkl: Engine.wAng ? Engine.wAng.r : null, wOn: Engine.wOn, seg: Deck.seg && Deck.seg.kind, motor: Deck.motorState() }; });
   const f = (v, d = 3) => v == null ? 'n/a' : v.toFixed(d);
 
+  // BG=1 runs the whole report with background playback on (the mix then leaves through a media element)
+  if (process.env.BG) await p.evaluate(() => { const { Settings, Engine } = window.__deck; Settings.v.background = true; Engine.ensure(); Engine.route(); });
   await p.click('#playBtn');
   await p.waitForTimeout(4200);
   const s0 = await st(), a0 = await listen(0.5);

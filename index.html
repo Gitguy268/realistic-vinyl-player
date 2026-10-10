@@ -1177,6 +1177,7 @@
           <div class="group"><label><input type="checkbox" id="autoReturnChk" checked> Auto-return at the end</label></div>
           <div class="group"><label><input type="checkbox" id="sidesChk"> Record sides (about 22 minutes each, flip to continue)</label></div>
           <div class="group"><label><input type="checkbox" id="sizeChk"> Record size follows speed (7-inch at 45, 10-inch at 78)</label></div>
+          <div class="group"><label><input type="checkbox" id="bgChk"> Keep playing with the screen locked (phones)</label></div>
         </div>
       </div>
     </div>
@@ -1357,7 +1358,7 @@
         'bassLabel','midLabel','trebleLabel','volLabel',
         'discCanvas','labelCanvas','strobe','platterCanvas','slipmat','armShadow','armRestBox','cueLever','strobeLamp',
         'motorBtn','rpmSwitch','pitchSlider','pitchLabel','condSel',
-        'deckWrap','deckToggle','deckBody','impSlider','impVal','keepSpinChk','autoReturnChk','sidesChk','sizeChk','flipBtn'
+        'deckWrap','deckToggle','deckBody','impSlider','impVal','keepSpinChk','autoReturnChk','sidesChk','sizeChk','bgChk','flipBtn'
       ];
       ids.forEach(id => { DOM[id] = $(id); });
     }
@@ -2546,6 +2547,7 @@
       ensure() {
         if (State.ctxReady) {
           if (State.audioCtx.state === 'suspended') State.audioCtx.resume();
+          if (Settings.v.background && State.sink?.paused) State.sink.play().catch(() => {});   // after a call or another app took over
           return;
         }
         const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -2556,7 +2558,7 @@
           const filter = (type, f, q) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; if (q) b.Q.value = q; return b; };
 
           State.globalGain = gain(1);
-          State.globalGain.connect(ctx.destination);
+          Engine.route();
           State.srcNode = ctx.createMediaElementSource(DOM.audio);
           State.elGain = gain(1);
           State.musicGain = gain(1);          // muted while a hand scrubs with Scratch off
@@ -2580,6 +2582,23 @@
           Engine.updateParams();
           Engine.initWorklet(ctx);
         } catch (e) { console.warn('AudioContext init failed:', e); }
+      },
+
+      /** Where the mix goes: straight to the speakers, or through a media element. Phones keep a playing media
+          element alive when the screen locks and give it lock-screen controls; they do neither for Web Audio alone.
+          The detour adds output delay, so it is only the default on touch devices. Called from a user gesture. */
+      route() {
+        const ctx = State.audioCtx, out = State.globalGain;
+        if (!ctx || !out) return;
+        const bg = Settings.v.background && !!ctx.createMediaStreamDestination;
+        if (bg && !State.sink) {
+          State.sinkNode = ctx.createMediaStreamDestination();
+          State.sink = new Audio();
+          State.sink.srcObject = State.sinkNode.stream;
+        }
+        for (const node of [ctx.destination, State.sinkNode]) { try { if (node) out.disconnect(node); } catch {} }   // throws if it was not connected
+        out.connect(bg ? State.sinkNode : ctx.destination);
+        if (bg) State.sink.play().catch(() => {}); else State.sink?.pause();
       },
 
       /** What a cut record does to the signal, after the EQ: bass folded to mono, channel crosstalk,
@@ -2963,7 +2982,7 @@
 
     // ─── SETTINGS (new deck options, stored under their own key) ──
     const Settings = {
-      v: { condition: 'good', imperfection: 0.5, pitch: 0, keepSpinning: false, autoReturn: true, sides: false, sizeBySpeed: false },
+      v: { condition: 'good', imperfection: 0.5, pitch: 0, keepSpinning: false, autoReturn: true, sides: false, sizeBySpeed: false, background: null },
 
       load() {
         try { Object.assign(Settings.v, JSON.parse(localStorage.getItem(C.DECK_KEY)) || {}); } catch {}
@@ -2978,6 +2997,9 @@
         DOM.autoReturnChk.checked = !!v.autoReturn;
         DOM.sidesChk.checked = v.sides = !!v.sides;
         DOM.sizeChk.checked = v.sizeBySpeed = !!v.sizeBySpeed;
+        // unset: on for touch devices, where a locked screen would otherwise stop the music; off elsewhere, where it only adds delay
+        if (typeof v.background !== 'boolean') v.background = !!window.matchMedia?.('(hover: none) and (pointer: coarse)').matches;
+        DOM.bgChk.checked = v.background;
         Settings.apply();
       },
 
@@ -4309,12 +4331,13 @@
           Settings.apply(); Settings.save();
           Engine.updateParams();
         });
-        [['keepSpinChk', 'keepSpinning'], ['autoReturnChk', 'autoReturn'], ['sidesChk', 'sides'], ['sizeChk', 'sizeBySpeed']].forEach(([id, key]) => {
+        [['keepSpinChk', 'keepSpinning'], ['autoReturnChk', 'autoReturn'], ['sidesChk', 'sides'], ['sizeChk', 'sizeBySpeed'], ['bgChk', 'background']].forEach(([id, key]) => {
           DOM[id].addEventListener('change', () => {
             Engine.ensure(); Sfx.click();
             Settings.v[key] = DOM[id].checked;
             Settings.save();
             if (key === 'sides' || key === 'sizeBySpeed') Deck.swap();   // a different record goes on
+            if (key === 'background') Engine.route();
           });
         });
         DOM.flipBtn.addEventListener('click', () => {

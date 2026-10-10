@@ -138,6 +138,8 @@ function wav(seconds, sr, fill) {
   check('sides on: tracks 1–2 on side A, track 3 on side B, Flip button shown', d.sides === '[[0,1],[2,2]]' && d.side === 0 && /Side A/.test(d.flip) && d.badges === 2, `${d.sides}, button "${d.flip}"`);
   check('…without moving any row', (await rows()) === rows0);
   await p.click('#playBtn'); await p.waitForTimeout(3600);
+  const direct = await p.evaluate(() => ({ bg: window.__deck.Settings.v.background, sink: !!window.__deck.State.sink }));
+  check('desktop: the mix goes straight to the speakers (no background-playback detour)', direct.bg === false && !direct.sink, JSON.stringify(direct));
   await p.evaluate(() => window.__deck.Player.jumpTo(1, true)); await p.waitForTimeout(1300);
   await p.evaluate(() => { const { Player, Engine } = window.__deck; Player.seekTo(Engine.dur() - 1); });
   d = await until(d => d.seg === 'runout' || d.seg === 'locked', 4000);
@@ -202,6 +204,13 @@ function wav(seconds, sr, fill) {
     const wide = await p.evaluate(() => [...document.querySelectorAll('body *')].filter(el => { const r = el.getBoundingClientRect(); return r.width && (r.right > 390.5 || r.left < -0.5); }).map(el => el.id || el.className));
     const sw = await p.evaluate(() => document.documentElement.scrollWidth);
     check('phone focus mode: nothing is wider than the screen', wide.length === 0 && sw <= 390, `scroll width ${sw}` + (wide.length ? ', sticking out: ' + wide.slice(0, 4).join(', ') : ''));
+    // a touch device plays through a media element, which is what keeps a locked phone playing
+    await offKeys(ctx);
+    p = await ctx.newPage(); await p.goto(url + '?demo&debug'); await p.waitForTimeout(900);
+    await p.click('#playBtn'); await p.waitForTimeout(4200);
+    const sink = () => p.evaluate(() => { const { State, Settings } = window.__deck, a = State.sink; return { bg: Settings.v.background, playing: !!a && !a.paused, t: a ? a.currentTime : 0 }; });
+    const s1 = await sink(); await p.waitForTimeout(1000); const s2 = await sink();
+    check('phone: background playback is on and its media element is running', s1.bg === true && s2.playing && s2.t - s1.t > 0.7, `on ${s1.bg}, element clock ${s1.t.toFixed(1)} → ${s2.t.toFixed(1)} s`);
     await ctx.close();
   }
 

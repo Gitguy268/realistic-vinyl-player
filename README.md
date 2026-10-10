@@ -71,7 +71,7 @@ python3 -m http.server 8000
 | Condition | Mint, Good, Worn or Beat-up: hiss, crackle, scratches, dust and treble loss |
 | Cue lever, tonearm click | Lift or lower the stylus; the motor keeps running |
 | Record Info | Tags for the current track and editable liner notes |
-| Deck settings | Imperfection (wow, flutter, wobble), keep the platter spinning when paused, auto-return, record sides, record size follows speed |
+| Deck settings | Imperfection (wow, flutter, wobble), keep the platter spinning when paused, auto-return, record sides, record size follows speed, keep playing with the screen locked |
 | Side A ⇄ | Flip the record. Shown beside the tracklist heading when "Record sides" is on and the playlist needs more than one side. Choosing a track on another side flips it for you. |
 | Focus | Larger deck with a floating control bar |
 | Media keys | Play, pause, previous, next and seek from the keyboard's media keys or a headset |
@@ -103,7 +103,7 @@ Your library and settings from the original Vinyl-Player carry over when this pa
 - Above 33⅓ rpm the sped-up audio is smoothed by a simple averaging filter. Measured: a 20 kHz tone played at 78 folds back 30 dB quieter than without it, and at 45 it costs 0.7 dB at 13.5 kHz (both measured in Chromium).
 - Tags and cover art are read from MP3 (ID3 v1, v2.3, v2.4), FLAC, M4A/MP4, Ogg Vorbis, Opus and WAV files. Other formats play, without tags. A track saved before its format was supported is read once more the next time the page opens.
 - The flip is drawn flat (the record turns edge-on and back), without perspective.
-- Lock-screen controls depend on the browser: while the audio engine plays a decoded track, some browsers show no media controls.
+- On touch devices the sound is sent through a media element, so that a locked phone keeps playing and shows lock-screen controls. This has not been confirmed on a real phone yet. The detour adds a little output delay (not measured), which you may notice when scratching; "Keep playing with the screen locked" in Deck settings turns it off, or on for a desktop.
 
 ## Development
 
