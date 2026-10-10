@@ -22,6 +22,8 @@ function wav(seconds, sr, fill) {
   const open = async query => {
     const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
     await ctx.addInitScript(() => {
+      window.__ms = {};                                             // media-session handlers, so the test can press the keys
+      if (navigator.mediaSession) { const set = navigator.mediaSession.setActionHandler.bind(navigator.mediaSession); navigator.mediaSession.setActionHandler = (k, fn) => { window.__ms[k] = fn; set(k, fn); }; }
       window.__decodes = 0;
       for (const C of [window.BaseAudioContext, window.webkitAudioContext, window.webkitOfflineAudioContext].filter(Boolean)) {
         const orig = C.prototype.decodeAudioData;
@@ -92,6 +94,22 @@ function wav(seconds, sr, fill) {
   await p.waitForTimeout(4200); s = await st(p);
   check('shuffle: the next track is the next one in the shuffled order', s.idx === order[1] && s.contact && s.seg === 'track', `order ${order.map(i => i + 1).join(',')} → now track ${s.idx + 1}`);
   check('no console errors (hidden tab, repeat, shuffle)', p.errs.length === 0, p.errs.join(' | '));
+  await p.context().close();
+
+  // ── media keys ──
+  p = await open('?demo&debug');
+  if (await p.evaluate(() => !!navigator.mediaSession)) {
+    const ms = () => p.evaluate(() => { const { State, Deck, Engine } = window.__deck, m = navigator.mediaSession; return { playing: State.playing, idx: State.currentIdx, pos: Engine.pos(), contact: Deck.contact, title: m.metadata && m.metadata.title, state: m.playbackState, name: State.playlist[State.currentIdx].name }; });
+    await p.evaluate(() => window.__ms.play()); await p.waitForTimeout(3800); s = await ms();
+    check('media key Play starts the deck and names the track', s.playing && s.contact && s.title === s.name && s.state === 'playing', `"${s.title}", ${s.state}`);
+    await p.evaluate(() => window.__ms.nexttrack()); await p.waitForTimeout(1300); s = await ms();
+    check('media key Next goes to track 2', s.idx === 1 && s.title === s.name, `track ${s.idx + 1}, "${s.title}"`);
+    await p.evaluate(() => window.__ms.seekto({ seekTime: 12 })); await p.waitForTimeout(400); s = await ms();
+    check('media seek moves the stylus', Math.abs(s.pos - 12.3) < 0.6, `${s.pos.toFixed(1)} s`);
+    await p.evaluate(() => window.__ms.pause()); await p.waitForTimeout(300); s = await ms();
+    check('media key Pause lifts the stylus', !s.playing && !s.contact && s.state === 'paused');
+    check('no console errors (media keys)', p.errs.length === 0, p.errs.join(' | '));
+  } else console.log('  --   no Media Session in this browser');
   await p.context().close();
 
   // ── phone, focus mode: the deck and the floating bar fit the screen ──
