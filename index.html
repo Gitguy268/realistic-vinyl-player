@@ -150,30 +150,29 @@
     .vinyl-wrap:hover { transform: scale(1.008); }
     .vinyl-wrap.dragging { cursor: grabbing; transform: scale(0.992); }
 
+    /* Machined aluminium. The metal and the strobe marks are drawn once to canvases (Render.platter / Render.strobe)
+       and composited as bitmaps: as CSS gradients under the turning record they were repainted every frame. */
     .platter {
       position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
-      /* machined aluminium: lathe rings over a brushed sweep, bevelled rim */
-      background:
-        radial-gradient(circle closest-side, transparent 98.6%, rgba(255,255,255,.6) 99.2%, rgba(20,20,22,.7) 100%),
-        repeating-radial-gradient(circle, rgba(0,0,0,0) 0, rgba(0,0,0,0) 1px, rgba(0,0,0,.14) 1.5px, rgba(0,0,0,0) 2.2px),
-        conic-gradient(from 24deg, #8b8e93, #e7e9eb 8%, #9a9da2 16%, #55585d 25%, #a8abb0 33%, #eceef0 42%,
-          #898c91 50%, #54575c 58%, #a3a6ab 67%, #e3e5e7 75%, #8d9095 84%, #575a5f 92%, #8b8e93);
+      background: #8f9297;
       box-shadow: 0 calc(var(--u) * 1.1) calc(var(--u) * 2.8) rgba(0,0,0,.55), 0 1px 2px rgba(0,0,0,.65),
                   inset 0 0 0 1px rgba(0,0,0,.4);
     }
-    /* Strobe marks: 180 around the rim, so they stand still under a 100 Hz lamp at 33⅓ */
-    .platter-strobe {
-      position: absolute; inset: 0; border-radius: 50%; will-change: transform;
-      background: repeating-conic-gradient(#eceef0 0deg, #eceef0 .85deg, #131416 .95deg, #131416 1.9deg, #eceef0 2deg);
-      -webkit-mask: radial-gradient(circle closest-side, transparent 96.1%, #000 96.5%, #000 98.3%, transparent 98.7%);
-      mask: radial-gradient(circle closest-side, transparent 96.1%, #000 96.5%, #000 98.3%, transparent 98.7%);
-    }
+    .platter-face { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; }
+    .theme-clear .platter-face { display: none; }
+    .platter-strobe { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; will-change: transform; }
     .slipmat {
       position: absolute; inset: 2.8%; border-radius: 50%; will-change: transform;
-      background: var(--felt), radial-gradient(circle, #1a1a1c 0, #29292c 55%, #1d1d1f 100%);
-      background-blend-mode: overlay, normal;
+      background:
+        var(--felt),
+        conic-gradient(from 40deg, rgba(255,255,255,.07) 0deg, rgba(255,255,255,0) 50deg, rgba(0,0,0,.10) 180deg, rgba(255,255,255,0) 300deg, rgba(255,255,255,.07) 360deg),
+        repeating-radial-gradient(circle closest-side, transparent 0, transparent 31%, rgba(255,255,255,.05) 31.4%, transparent 31.8%, transparent 33.3%),
+        radial-gradient(circle, #1a1a1c 0, #29292c 55%, #1d1d1f 100%);
+      background-blend-mode: overlay, normal, normal, normal;
       box-shadow: inset 0 0 0 1px rgba(0,0,0,.5), 0 0 2px rgba(0,0,0,.6);
+      visibility: hidden;                 /* under the record */
     }
+    .no-record .slipmat { visibility: visible; }
     .strobe-lamp {
       position: absolute; left: 12.2%; top: 87.8%;
       width: calc(var(--u) * 5); height: calc(var(--u) * 5);
@@ -201,6 +200,13 @@
       border-radius: 50%;
       will-change: transform;
     }
+
+    /* With no tracks there is no record on the platter: the mat shows until one is placed. */
+    .vinyl, .vinyl-shadow, .vinyl-sheen, .vinyl-highlight, .vinyl-iridescent, .vinyl-wrap::before, .vinyl-wrap::after {
+      transition: opacity .35s ease;
+    }
+    .no-record .vinyl, .no-record .vinyl-shadow, .no-record .vinyl-sheen, .no-record .vinyl-highlight,
+    .no-record .vinyl-iridescent, .no-record .vinyl-wrap::before, .no-record .vinyl-wrap::after { opacity: 0; }
 
     .vinyl-disc {
       position: absolute; inset: 0; border-radius: 50%;
@@ -257,7 +263,7 @@
       pointer-events: none; z-index: 4;
     }
     .vinyl-dust {
-      position: absolute; inset: 0; border-radius: 50%; pointer-events: none; z-index: 5;
+      position: absolute; inset: 0; border-radius: 50%; pointer-events: none; z-index: 1;
     }
 
     /* Anisotropic sheen: two wedges that stay put while the record turns under them.
@@ -270,37 +276,6 @@
       mask: radial-gradient(circle closest-side, transparent 37%, #000 39%, #000 98.6%, transparent 99.8%);
       mix-blend-mode: color-dodge;
     }
-    /* soft bloom around the same two wedges */
-    .vinyl-highlight {
-      background: conic-gradient(from calc(var(--light) + 253deg),
-        transparent 0deg, rgba(255,255,255,.085) 52deg, transparent 112deg,
-        transparent 176deg, rgba(255,255,255,.05) 232deg, transparent 292deg);
-      -webkit-mask: radial-gradient(circle closest-side, transparent 37%, #000 41%, #000 98%, transparent 100%);
-      mask: radial-gradient(circle closest-side, transparent 37%, #000 41%, #000 98%, transparent 100%);
-      mix-blend-mode: screen;
-      transition: opacity var(--transition);
-    }
-
-    .vinyl-iridescent {
-      background: conic-gradient(from 0deg,
-        rgba(255,80,80,.04), rgba(255,200,50,.04), rgba(80,255,80,.04),
-        rgba(50,200,255,.04), rgba(180,80,255,.04), rgba(255,80,80,.04));
-      -webkit-mask: radial-gradient(circle, transparent 48%, black 52%, black 92%, transparent 96%);
-      mask: radial-gradient(circle, transparent 48%, black 52%, black 92%, transparent 96%);
-      mix-blend-mode: screen; opacity: .7;
-    }
-
-    .vinyl-dust {
-      opacity: calc(var(--wear) * .26);
-      background:
-        repeating-linear-gradient(37deg, transparent, transparent 5px,
-          rgba(255,255,255,.025) 5.5px, transparent 6px),
-        repeating-linear-gradient(143deg, transparent, transparent 8px,
-          rgba(255,255,255,.015) 8.5px, transparent 9px);
-      -webkit-mask: radial-gradient(circle closest-side, transparent 37%, #000 38%);
-      mask: radial-gradient(circle closest-side, transparent 37%, #000 38%);
-    }
-
     .vinyl-glow {
       position: absolute; inset: -5px; border-radius: 50%;
       pointer-events: none; z-index: 1;
@@ -489,9 +464,6 @@
         radial-gradient(circle closest-side, rgba(255,255,255,.012) 0, rgba(255,255,255,.03) 80%, rgba(255,255,255,.07) 96%);
       box-shadow: 0 calc(var(--u) * 1.4) calc(var(--u) * 3.6) rgba(0,0,0,.28), inset 0 0 0 1px rgba(255,255,255,.22);
     }
-    .theme-clear .platter-strobe {
-      background: repeating-conic-gradient(rgba(255,255,255,.85) 0deg, rgba(255,255,255,.85) .85deg, rgba(255,255,255,.08) .95deg, rgba(255,255,255,.08) 1.9deg, rgba(255,255,255,.85) 2deg);
-    }
     .theme-clear .slipmat { display: none; }
     .theme-clear .vinyl-shadow { box-shadow: 0 12px 40px rgba(0,0,0,0.25); }
     .theme-clear .vinyl-wrap::before {
@@ -532,6 +504,7 @@
       mix-blend-mode: screen; opacity: 1; z-index: 7;
     }
     .theme-clear .vinyl-highlight {
+      transition: opacity var(--transition);
       background:
         radial-gradient(ellipse 50% 40% at 30% 20%, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.08) 45%, transparent 70%),
         radial-gradient(ellipse 25% 20% at 75% 75%, rgba(255,255,255,0.1) 0%, transparent 65%);
@@ -544,7 +517,6 @@
       mask: radial-gradient(circle, transparent 42%, black 48%, black 88%, transparent 94%);
       mix-blend-mode: screen; opacity: 0.45;
     }
-    .theme-clear .vinyl-dust { opacity: calc(var(--wear) * .12); }
     .theme-clear .vinyl-glow {
       inset: -12px; border: 1px solid rgba(255,255,255,0.1);
       box-shadow: 0 0 50px rgba(255,255,255,0.05), inset 0 0 20px rgba(255,255,255,0.05);
@@ -562,7 +534,7 @@
       pointer-events: none; z-index: 12; mix-blend-mode: overlay; opacity: 0.65;
       transition: opacity .3s ease;
     }
-    .theme-clear .vinyl-wrap:hover::after { opacity: 0.85; }
+    .theme-clear .turntable:not(.no-record) .vinyl-wrap:hover::after { opacity: 0.85; }
     .theme-clear .vinyl-label {
       box-shadow: 0 0 0 1px rgba(255,255,255,0.14), inset 0 1.5px 4px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.06), 0 2px 10px rgba(0,0,0,0.1);
     }
@@ -654,7 +626,6 @@
     /* Deck settings body */
     .deck-grid { display: flex; flex-wrap: wrap; gap: 12px 22px; align-items: center; }
     .deck-grid .val { min-width: 30px; font-variant-numeric: tabular-nums; }
-    .deck-grid button { padding: 3px 9px; margin-left: 6px; }
     button:focus-visible, select:focus-visible, input:focus-visible {
       outline: 2px solid var(--accent); outline-offset: 2px;
     }
@@ -832,12 +803,14 @@
     .about-wrap.open .about-toggle .arrow { transform: rotate(180deg); }
     .about-body {
       max-height: 0; overflow: hidden;
-      transition: max-height .4s ease, padding .3s ease;
+      visibility: hidden;      /* collapsed controls stay out of the tab order */
+      transition: max-height .4s ease, padding .3s ease, visibility 0s .4s;
       background: var(--surface); border-radius: 0 0 10px 10px;
       padding: 0 16px; font-size: 12px; line-height: 1.6; color: var(--text-dim);
     }
     .about-wrap.open .about-body {
       max-height: 800px; padding: 16px; overflow-y: auto;
+      visibility: visible; transition-delay: 0s;
     }
     .info-panels { display: flex; flex-direction: column; gap: 16px; }
     .info-card {
@@ -1019,11 +992,12 @@
       <label aria-label="Add audio files">🎵 Add audio files<input type="file" id="audioIn" accept="audio/*" multiple></label>
     </div>
 
-    <div class="turntable" id="turntable">
+    <div class="turntable no-record" id="turntable">
       <div class="vinyl-wrap" id="vinylWrap">
         <!-- Fixed in the world: platter body. Turns with the motor: strobe ring and slipmat. -->
         <div class="platter" aria-hidden="true">
-          <div class="platter-strobe" id="strobe"></div>
+          <canvas class="platter-face" id="platterCanvas"></canvas>
+          <canvas class="platter-strobe" id="strobe"></canvas>
           <div class="slipmat" id="slipmat"></div>
         </div>
         <div class="vinyl-shadow" aria-hidden="true"></div>
@@ -1175,8 +1149,6 @@
           <div class="group"><span id="impLabel">Imperfection</span><input type="range" id="impSlider" min="0" max="1" step=".01" value=".5" aria-label="Imperfection: wow, flutter and wobble amount"><span class="val" id="impVal">50%</span></div>
           <div class="group"><label><input type="checkbox" id="keepSpinChk"> Keep platter spinning when paused</label></div>
           <div class="group"><label><input type="checkbox" id="autoReturnChk" checked> Auto-return at the end</label></div>
-          <div class="group"><label><input type="checkbox" id="sidesChk"> Record sides (about 22 min each)</label><button id="flipBtn" disabled aria-label="Flip the record">⟲ Flip</button></div>
-          <div class="group"><label><input type="checkbox" id="sizeChk"> Record size follows speed (12″ / 7″ / 10″)</label></div>
         </div>
       </div>
     </div>
@@ -1236,6 +1208,7 @@
       HAND_TAU: 0.025,        // s; friction between hand and record
       EL_MIN_RATE: 0.07,      // the media element is paused below this playback rate…
       EL_MAX_RATE: 4,         // …and capped at this one (browsers mute or clamp outside roughly 0.06–4)
+      EL_RATE_MS: 40,         // least time between rate changes on the media element
 
       // Tonearm motion (seconds)
       ARM_LIFT_S: 0.14,
@@ -1346,9 +1319,9 @@
         'focusControls','fcPrev','fcPlay','fcNext','fcTime','fcDur',
         'fcSeek','fcSeekFill','fcExit',
         'bassLabel','midLabel','trebleLabel','volLabel',
-        'discCanvas','labelCanvas','strobe','slipmat','armShadow','armRestBox','cueLever','strobeLamp',
+        'discCanvas','labelCanvas','strobe','platterCanvas','slipmat','armShadow','armRestBox','cueLever','strobeLamp',
         'motorBtn','rpmSwitch','pitchSlider','pitchLabel','condSel',
-        'deckWrap','deckToggle','deckBody','impSlider','impVal','keepSpinChk','autoReturnChk','sidesChk','sizeChk','flipBtn'
+        'deckWrap','deckToggle','deckBody','impSlider','impVal','keepSpinChk','autoReturnChk'
       ];
       ids.forEach(id => { DOM[id] = $(id); });
     }
@@ -1723,9 +1696,56 @@
         Geo.update();
         Program.build();
         Wear.build();
+        Render.platter();
+        Render.strobe();
         Render.disc();
         Render.label();
         State.lastArmKey = '';
+      },
+
+      /** Platter metal: a brushed sweep, lathe rings and a bevelled rim. Static, so drawn once per size. */
+      platter() {
+        const cv = DOM.platterCanvas;
+        const px = Math.max(64, Math.round(DOM.vinylWrap.offsetWidth * Render.dpr()));
+        if (cv.width === px) return;
+        cv.width = cv.height = px;
+        const g = cv.getContext('2d'), c = px / 2;
+        let metal = '#9a9da2';
+        if (g.createConicGradient) {
+          metal = g.createConicGradient((24 - 90) * Math.PI / 180, c, c);
+          ['#8b8e93', '#e7e9eb', '#9a9da2', '#55585d', '#a8abb0', '#eceef0', '#898c91', '#54575c', '#a3a6ab', '#e3e5e7', '#8d9095', '#575a5f', '#8b8e93']
+            .forEach((col, i, all) => metal.addColorStop(i / (all.length - 1), col));
+        }
+        g.beginPath(); g.arc(c, c, c, 0, Math.PI * 2); g.fillStyle = metal; g.fill();
+        g.strokeStyle = 'rgba(0,0,0,.14)'; g.lineWidth = Math.max(1, px / 700);
+        for (let r = px / 300; r < c; r += px / 160) { g.beginPath(); g.arc(c, c, r, 0, Math.PI * 2); g.stroke(); }
+        const rim = g.createRadialGradient(c, c, c * 0.986, c, c, c);
+        rim.addColorStop(0, 'rgba(255,255,255,0)'); rim.addColorStop(0.45, 'rgba(255,255,255,.6)'); rim.addColorStop(1, 'rgba(20,20,22,.7)');
+        g.beginPath(); g.arc(c, c, c * 0.993, 0, Math.PI * 2); g.strokeStyle = rim; g.lineWidth = c * 0.014; g.stroke();
+      },
+
+      /** Strobe marks on the platter rim: 180 of them, so they stand still under a 100 Hz lamp at 33⅓. */
+      strobe() {
+        const cv = DOM.strobe;
+        const px = Math.max(64, Math.round(DOM.vinylWrap.offsetWidth * Render.dpr()));
+        const clear = DOM.app.classList.contains('theme-clear');
+        const key = px + (clear ? 'c' : 'm');
+        if (cv._key === key) return;
+        cv._key = key;
+        cv.width = cv.height = px;
+        const g = cv.getContext('2d'), c = px / 2, r0 = c * 0.964, r1 = c * 0.984;
+        if (!clear) {
+          g.beginPath(); g.arc(c, c, (r0 + r1) / 2, 0, Math.PI * 2);
+          g.strokeStyle = '#131416'; g.lineWidth = r1 - r0; g.stroke();
+        }
+        g.fillStyle = clear ? 'rgba(255,255,255,.85)' : '#eceef0';
+        const half = 0.45 * Math.PI / 180;
+        for (let i = 0; i < 180; i++) {
+          const a = i * 2 * Math.PI / 180;
+          g.beginPath();
+          g.arc(c, c, r1, a - half, a + half); g.arc(c, c, r0, a + half, a - half, true);
+          g.fill();
+        }
       },
 
       /** Small seeded PRNG (mulberry32) so a record always looks the same. */
@@ -1861,7 +1881,7 @@
         if (!text) return;
         g.font = `600 ${size}px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif`;
         g.textAlign = 'center'; g.textBaseline = 'middle';
-        const gap = size * 0.14, maxArc = 2.5 * r;
+        const gap = size * 0.14, maxArc = 2.85 * r;
         let chars = [...text], widths = chars.map(ch => g.measureText(ch).width + gap);
         let total = widths.reduce((a, b) => a + b, 0);
         while (total > maxArc && chars.length > 2) {
@@ -2247,7 +2267,7 @@
       wPos: 0, wSeq: 0,      // last position it reported, and the seek generation that position belongs to
       wAng: null,            // last { a, r, t } it reported: record angle, speed, audio-clock time
       hand0: 0,
-      lastRate: 0, rateAt: 0, starting: false, pendingSeek: null, scrubAcc: 0, toneAt: 0, cfgKey: '',
+      lastRate: 0, rateAt: 0, rateProbe: null, coarse: false, starting: false, pendingSeek: null, scrubAcc: 0, toneAt: 0, cfgKey: '',
 
       ensure() {
         if (State.ctxReady) {
@@ -2621,12 +2641,22 @@
 
       /** Media-element path: its rate is the record's speed, and it only runs with the stylus in a track. */
       follow() {
-        const a = DOM.audio, w = Deck.wr;
-        const run = !Engine.wOn && Deck.contact && Deck.seg?.kind === 'track' && !Deck.held && w >= C.EL_MIN_RATE && !a.ended;
+        const a = DOM.audio, w = Deck.wr, now = performance.now(), tgt = Deck.target();
+        // WebKit stalls for about half a second on every rate change. If the element stopped advancing after one,
+        // stop gliding from then on: play only once the platter has settled, at its final speed.
+        const probe = Engine.rateProbe;
+        if (probe && now - probe.at > 250) {
+          if (!a.paused && !a.seeking && a.currentTime - probe.ct < 0.4 * probe.rate * (now - probe.at) / 1000) Engine.coarse = true;
+          Engine.rateProbe = null;
+        }
+        const settled = tgt > 0 && Math.abs(Deck.wp - tgt) < 0.01 * tgt && Math.abs(w - tgt) < 0.02 * tgt;
+        const run = !Engine.wOn && Deck.contact && Deck.seg?.kind === 'track' && !Deck.held && w >= C.EL_MIN_RATE && !a.ended &&
+                    (!Engine.coarse || settled);
         if (!run) { if (!a.paused) a.pause(); return; }
-        const now = performance.now(), r = Utils.clamp(w, C.EL_MIN_RATE, C.EL_MAX_RATE);
-        if (Math.abs(r - Engine.lastRate) > 0.003 * r && now - Engine.rateAt > 30) {
+        const r = Engine.coarse ? tgt : Utils.clamp(w, C.EL_MIN_RATE, C.EL_MAX_RATE);
+        if (Math.abs(r - Engine.lastRate) > 0.003 * r && now - Engine.rateAt > C.EL_RATE_MS) {
           try { a.playbackRate = r; } catch {}
+          if (!a.paused && !Engine.coarse && !Engine.rateProbe) Engine.rateProbe = { at: now, ct: a.currentTime, rate: r };
           Engine.lastRate = r; Engine.rateAt = now;
           // near a standstill browsers mute or stutter: fade instead
           if (State.ctxReady) Engine.aim(State.elGain.gain, Utils.clamp((w - C.EL_MIN_RATE) / 0.18, 0, 1), 0.03);
@@ -2646,7 +2676,7 @@
 
     // ─── SETTINGS (new deck options, stored under their own key) ──
     const Settings = {
-      v: { condition: 'good', imperfection: 0.5, pitch: 0, keepSpinning: false, autoReturn: true, sides: false, sizeBySpeed: false },
+      v: { condition: 'good', imperfection: 0.5, pitch: 0, keepSpinning: false, autoReturn: true },
 
       load() {
         try { Object.assign(Settings.v, JSON.parse(localStorage.getItem(C.DECK_KEY)) || {}); } catch {}
@@ -2659,8 +2689,6 @@
         DOM.pitchSlider.value = v.pitch;
         DOM.keepSpinChk.checked = !!v.keepSpinning;
         DOM.autoReturnChk.checked = !!v.autoReturn;
-        DOM.sidesChk.checked = !!v.sides;
-        DOM.sizeChk.checked = !!v.sizeBySpeed;
         Settings.apply();
       },
 
@@ -3134,6 +3162,8 @@
         Render.schedule();
         DOM.tracklistOl.innerHTML = '';
         DOM.tracklistEmpty.style.display = State.playlist.length ? 'none' : 'block';
+        DOM.turntable.classList.toggle('no-record', !State.playlist.length);
+        State.matVisible = !State.playlist.length;
         State.playlist.forEach((track, i) => {
           const li = document.createElement('li');
           li.setAttribute('role', 'listitem');
@@ -4000,7 +4030,7 @@
       setupAudio() {
         DOM.audio.addEventListener('ended', Player.onTrackEnd);
         DOM.audio.addEventListener('error', () => {
-          if (!DOM.audio.getAttribute('src') || !Player.isReady()) return;
+          if (!DOM.audio.getAttribute('src') || !Player.isReady() || Engine.wOn) return;   // the worklet may be playing what the element cannot
           DOM.hint.textContent = `Can't play "${State.playlist[State.currentIdx].name}" (unsupported or damaged file)`;
           if (State.playing) Player.stop();
         });
