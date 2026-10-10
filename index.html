@@ -1256,12 +1256,37 @@
       ECCENTRIC: 0.0045,      // off-centre hole, in record radii
       WARP_DEG: 0.9,          // sheen flicker from a slight warp
 
-      // Record condition
+      // Wow and flutter, as a fraction of speed at Imperfection = 100% (about 0.14% RMS, 0.07% at the default 50%)
+      WOW: {
+        ecc: 0.0016,              // off-centre hole: once per turn (0.55 Hz at 33⅓)
+        fa: 0.0007, ffa: 4.3,     // flutter, Hz
+        fb: 0.0004, ffb: 5.7,
+        drift: 0.0008, fd: 0.09   // slow drift, Hz
+      },
+      SYNC_TAU: 0.3,          // s; how fast the drawn record locks to the angle the audio thread reports
+
+      // Audio: what the vinyl does to the signal (after the EQ)
+      BASS_MONO_HZ: 120,      // stereo below this is folded to mono
+      CROSSTALK_DB: -25,      // channel separation
+      ROLLOFF_HZ: 16000,      // high-frequency roll-off at 33⅓ and 45
+      ROLLOFF_78_HZ: 7500,    // shellac
+      INNER_ROLLOFF: 11 / 16, // roll-off at the innermost groove, as a fraction of the outer one (16 kHz → 11 kHz)
+      INNER_DRIVE: 0.35,      // extra saturation drive at the innermost groove
+      SATURATION: 0.9,        // tanh steepness: higher = earlier rounding
+      NOISE_GAIN: 2,          // surface-noise level at Vinyl noise = 1
+      LEADIN_NOISE_FLOOR: 0.3,// lead-in crackle is at least this loud while Effects is on
+      LEADIN_DENSITY: 4,      // crackle is this much denser in the lead-in
+      SHELLAC_HISS: 2.6,      // hiss multiplier at 78
+      PCM_MAX_SEC: 1200,      // longer tracks stay on the media element (decoded audio is ~0.35 MB per second)
+      RMS_SLICES: 600,        // loudness slices per track for groove shading
+
+      // Record condition: wear (visual 0..1), hiss level, clicks per second, pops per second, scratch count,
+      // roll-off multiplier and extra distortion
       CONDITIONS: {
-        mint: { wear: 0.04 },
-        good: { wear: 0.33 },
-        worn: { wear: 0.66 },
-        beat: { wear: 1 }
+        mint: { wear: 0.04, hiss: 0.35, crackle: 0.25, pops: 0.004, scratches: 0, lp: 1, dist: 0 },
+        good: { wear: 0.33, hiss: 1, crackle: 2, pops: 0.04, scratches: 2, lp: 0.97, dist: 0.03 },
+        worn: { wear: 0.66, hiss: 1.8, crackle: 7, pops: 0.15, scratches: 6, lp: 0.8, dist: 0.1 },
+        beat: { wear: 1, hiss: 3, crackle: 16, pops: 0.4, scratches: 12, lp: 0.62, dist: 0.22 }
       },
 
       /** IndexedDB config */
@@ -1352,8 +1377,14 @@
       trebleEQ: null,
       masterGain: null,
       globalGain: null,
-      noiseNode: null,
       noiseGain: null,
+      musicGain: null,
+      elGain: null,
+      deckNode: null,
+      rolloff: null,
+      driveIn: null,
+      driveOut: null,
+      demo: false,
       analyser: null,
       freqData: null,
       scratchBuffer: null,
@@ -1853,125 +1884,482 @@
     // ─── WEAR: record condition (defect map arrives with the imperfections phase) ──
     const Wear = {
       build() {},
+      send() {},
       draw() {}
     };
 
-    // ─── MECHANICAL SOUNDS ───────────────────────────────────────
+    // ─── AUDIO WORKLET ───────────────────────────────────────────
+    // Runs on the audio thread. It is loaded from this function's own source text, so the app stays one file.
+    // One processor is the record under the stylus: it keeps the record's speed and angle, reads the decoded
+    // track at that speed (forwards or backwards) and makes the surface noise that the groove would.
+    function workletSource() {
+      const DEG = Math.PI / 180, TAU = Math.PI * 2;
+
+      class DeckProcessor extends AudioWorkletProcessor {
+        static get parameterDescriptors() {
+          return [
+            { name: 'rate', defaultValue: 0, automationRate: 'a-rate' },     // platter speed, units of 33⅓ rpm
+            { name: 'gate', defaultValue: 0, automationRate: 'a-rate' },     // stylus contact, 0..1
+            { name: 'motor', defaultValue: 0, automationRate: 'k-rate' },    // motor running, 0..1 (rumble)
+            { name: 'radius', defaultValue: 0.9, automationRate: 'k-rate' }, // stylus radius, record radii
+            { name: 'phi', defaultValue: 40, automationRate: 'k-rate' }      // stylus position around the spindle, deg
+          ];
+        }
+
+        constructor(options) {
+          super();
+          this.k = options.processorOptions;
+          this.bufs = new Map();          // track id → { id, ch, len, sr, ratio }
+          this.cur = null;                // track under the stylus
+          this.pos = 0;                   // read position, source samples (fractional)
+          this.on = false;                // stylus is in a music groove (not lead-in, gap or run-out)
+          this.scrub = true;              // a hand on the record moves the music
+          this.seq = 0;
+          this.endSent = false;
+          this.r = 0;                     // record speed
+          this.eff = 0;                   // record speed including wow and flutter
+          this.angle = 0;                 // record angle, deg
+          this.held = false; this.h0 = 0; this.t1 = 0; this.t2 = 0; this.target = 0;
+          this.jump = null; this.xf = 1;  // seek with a 2 ms dip instead of a click
+          this.cfg = { imp: 0.5, hiss: 1, crackle: 2, pops: 0.04, shellac: 0, dense: 1 };
+          this.hiss = 0;
+          this.defects = [];
+          this.voices = [];
+          this.tilt = [0, 0]; this.rum = [0, 0];
+          this.bp = [0, 0, 0, 0, 0, 0, 0, 0];
+          this.blocks = 0;
+          // band-pass that gives shellac its gritty mid-range hiss (RBJ, 3.2 kHz, Q 0.8)
+          const w0 = TAU * 3200 / sampleRate, al = Math.sin(w0) / 1.6, a0 = 1 + al;
+          this.bq = [al / a0, -al / a0, -2 * Math.cos(w0) / a0, (1 - al) / a0];
+          this.port.onmessage = e => this.onMessage(e.data);
+        }
+
+        onMessage(m) {
+          if (m.load) this.bufs.set(m.load, { id: m.load, ch: m.ch, len: m.ch[0].length, sr: m.sr, ratio: m.sr / sampleRate });
+          if (m.unload) { this.bufs.delete(m.unload); if (this.cur && this.cur.id === m.unload) this.cur = null; }
+          if (m.cue !== undefined) {
+            this.cur = this.bufs.get(m.cue) || null;
+            this.pos = this.cur ? Math.min(m.pos * this.cur.sr, this.cur.len) : 0;
+            this.jump = null; this.xf = 0; this.endSent = false; this.seq = m.seq;
+          }
+          if (m.seek !== undefined && this.cur) {
+            this.jump = Math.max(0, Math.min(m.seek * this.cur.sr, this.cur.len));
+            this.endSent = false; this.seq = m.seq;
+          }
+          if (m.run !== undefined) { this.on = m.run; this.scrub = m.scrub; }
+          if (m.hold !== undefined) {
+            this.held = m.hold;
+            if (m.hold) this.h0 = this.t1 = this.t2 = this.target = this.angle;
+          }
+          if (m.hand !== undefined) this.target = this.h0 + m.hand;
+          if (m.cfg) Object.assign(this.cfg, m.cfg);
+          if (m.defects) this.defects = m.defects;
+        }
+
+        /** Start one click, pop or tick: a decaying burst. */
+        hit(amp, freq, tau, pan) {
+          if (this.voices.length >= 24) return;
+          this.voices.push({
+            e: amp, d: Math.exp(-1 / (sampleRate * tau)), ph: Math.random() * TAU, w: TAU * freq / sampleRate,
+            l: Math.cos(pan), r: Math.sin(pan) * (Math.random() < 0.3 ? -1 : 1)
+          });
+        }
+
+        process(inputs, outputs, params) {
+          const mL = outputs[0][0], mR = outputs[0][1] || outputs[0][0];
+          const nL = outputs[1][0], nR = outputs[1][1] || outputs[1][0];
+          const n = mL.length, sr = sampleRate, k = this.k, c = this.cfg, cur = this.cur;
+          const rate = params.rate, gate = params.gate;
+          const motor = params.motor[0], radius = params.radius[0], phi = params.phi[0];
+          const kSlip = 1 - Math.exp(-1 / (sr * k.slipTau)), kHand = 1 - Math.exp(-1 / (sr * k.handTau));
+          const dps = k.dps / sr;
+
+          // Wow and flutter: an off-centre hole (once per turn), two flutter rates and a slow drift.
+          // It modulates the record's speed itself, so the music and the angle the page draws both carry it.
+          const t = currentTime, w = k.wow;
+          const wow = c.imp * (w.ecc * Math.sin(this.angle * DEG) + w.fa * Math.sin(TAU * w.ffa * t) +
+                               w.fb * Math.sin(TAU * w.ffb * t + 1.3) + w.drift * Math.sin(TAU * w.fd * t + 0.7));
+          const a0 = this.angle;
+          const pClick = c.crackle * c.dense / sr, pPop = c.pops * c.dense / sr;
+          const kRum = 1 - Math.exp(-TAU * 28 / sr), bq = this.bq, bp = this.bp, voices = this.voices;
+          let g = 0, eff = 0;
+
+          for (let i = 0; i < n; i++) {
+            g = gate.length > 1 ? gate[i] : gate[0];
+
+            // ── record speed ──
+            if (this.held) {
+              // a hand has it: follow the hand's angle through two short lags (finger friction)
+              this.t1 += (this.target - this.t1) * kHand;
+              this.t2 += (this.t1 - this.t2) * kHand;
+              eff = (this.t2 - this.angle) / dps;
+              this.angle = this.t2;
+              this.r = eff;
+            } else {
+              // on the mat: slip towards platter speed
+              this.r += ((rate.length > 1 ? rate[i] : rate[0]) - this.r) * kSlip;
+              eff = this.r * (1 + wow);
+              this.angle += eff * dps;
+            }
+
+            // ── music ──
+            let l = 0, r = 0;
+            if (cur) {
+              if (this.jump !== null) {
+                this.xf -= 0.0104;
+                if (this.xf <= 0) { this.xf = 0; this.pos = this.jump; this.jump = null; }
+              } else if (this.xf < 1) this.xf = Math.min(1, this.xf + 0.0104);
+              const p = this.pos, len = cur.len;
+              if (g > 0.0005 && p < len - 1) {
+                // cubic (Catmull-Rom) read at a fractional, possibly reversing, position
+                const i0 = p | 0, f = p - i0;
+                const im = i0 > 0 ? i0 - 1 : 0, i1 = i0 + 1, i2 = i0 + 2 < len ? i0 + 2 : len - 1;
+                const amp = g * this.xf;
+                let d = cur.ch[0], xm = d[im], x0 = d[i0], x1 = d[i1], x2 = d[i2];
+                l = (x0 + 0.5 * f * (x1 - xm + f * (2 * xm - 5 * x0 + 4 * x1 - x2 + f * (3 * (x0 - x1) + x2 - xm)))) * amp;
+                if (cur.ch.length > 1) {
+                  d = cur.ch[1]; xm = d[im]; x0 = d[i0]; x1 = d[i1]; x2 = d[i2];
+                  r = (x0 + 0.5 * f * (x1 - xm + f * (2 * xm - 5 * x0 + 4 * x1 - x2 + f * (3 * (x0 - x1) + x2 - xm)))) * amp;
+                } else r = l;
+              }
+              if ((this.on && g > 0.5) || (this.held && this.scrub)) {
+                this.pos += eff * cur.ratio;
+                if (this.pos < 0) this.pos = 0;
+                else if (this.pos >= len) {
+                  this.pos = len;
+                  if (this.on && !this.endSent) { this.endSent = true; this.on = false; this.port.postMessage({ ended: cur.id }); }
+                }
+              }
+            }
+            mL[i] = l; mR[i] = r;
+
+            // ── surface noise: only what a moving groove under a seated stylus would make ──
+            const sp = Math.abs(eff) < 1.6 ? Math.abs(eff) : 1.6;
+            const amt = g * sp;
+            let sl = 0, sr2 = 0;
+            if (amt > 0.0002) {
+              const w1 = Math.random() * 2 - 1, w2 = Math.random() * 2 - 1;
+              this.hiss += (c.hiss - this.hiss) * 0.0015;
+              // hiss: white with a little low tilt; shellac adds a band of grit
+              this.tilt[0] += (w1 - this.tilt[0]) * 0.18; this.tilt[1] += (w2 - this.tilt[1]) * 0.18;
+              sl = (w1 * 0.6 + this.tilt[0] * 1.1) * this.hiss * 0.0045;
+              sr2 = (w2 * 0.6 + this.tilt[1] * 1.1) * this.hiss * 0.0045;
+              if (c.shellac > 0) {
+                let y = bq[0] * w1 + bq[1] * bp[1] - bq[2] * bp[2] - bq[3] * bp[3];
+                bp[1] = bp[0]; bp[0] = w1; bp[3] = bp[2]; bp[2] = y;
+                sl += y * c.shellac * this.hiss * 0.02;
+                y = bq[0] * w2 + bq[1] * bp[5] - bq[2] * bp[6] - bq[3] * bp[7];
+                bp[5] = bp[4]; bp[4] = w2; bp[7] = bp[6]; bp[6] = y;
+                sr2 += y * c.shellac * this.hiss * 0.02;
+              }
+              // crackle: Poisson-timed clicks of 0.2–3 ms with their own band, level and decay
+              if (Math.random() < pClick * sp) {
+                const u = Math.random();
+                this.hit(0.012 * Math.pow(18, u * u), 900 * Math.pow(10, Math.random()), 0.00004 * Math.pow(11, Math.random()), 0.25 + Math.random() * 1.07);
+              }
+              // rare louder pop with a low thump under it
+              if (Math.random() < pPop * sp) {
+                const pan = 0.45 + Math.random() * 0.67, a = 0.3 + Math.random() * 0.35;
+                this.hit(a, 500 + Math.random() * 1500, 0.0007, pan);
+                this.hit(a * 0.6, 55 + Math.random() * 40, 0.012, 0.785);
+              }
+              // motor rumble below 40 Hz reaches the stylus through the platter
+              this.rum[0] += (w1 - this.rum[0]) * kRum; this.rum[1] += (this.rum[0] - this.rum[1]) * kRum;
+              const rumble = this.rum[1] * motor * 0.16;
+              sl += rumble; sr2 += rumble;
+            }
+            if (voices.length) {
+              let vl = 0, vr = 0;
+              for (let v = voices.length - 1; v >= 0; v--) {
+                const o = voices[v], s = o.e * Math.sin(o.ph);
+                vl += s * o.l; vr += s * o.r;
+                o.ph += o.w; o.e *= o.d;
+                if (o.e < 0.0002) voices.splice(v, 1);
+              }
+              sl += vl * g; sr2 += vr * g;
+            }
+            nL[i] = sl; nR[i] = sr2;
+          }
+          this.eff = eff;
+
+          // Scratches are fixed to the record: each ticks when its angle passes under the stylus, once per turn.
+          if (g > 0.5 && this.defects.length && this.angle !== a0) {
+            for (const d of this.defects) {
+              if (radius > d.r0 || radius < d.r1) continue;
+              const ph = phi - d.a;
+              if (Math.floor((a0 - ph) / 360) !== Math.floor((this.angle - ph) / 360)) {
+                this.hit(d.amp, d.f, d.tau, d.pan);
+                if (d.low) this.hit(d.amp * 0.5, d.low, 0.01, 0.785);
+              }
+            }
+          }
+
+          if (++this.blocks % 8 === 0) {
+            this.port.postMessage({ p: cur ? this.pos / cur.sr : 0, id: cur ? cur.id : null, q: this.seq, a: this.angle, r: eff, t: currentTime });
+          }
+          return true;
+        }
+      }
+      registerProcessor('deck', DeckProcessor);
+
+      // Test tap (only connected with ?debug): keeps the last few seconds of output so a script can inspect them.
+      class TapProcessor extends AudioWorkletProcessor {
+        constructor() {
+          super();
+          this.buf = new Float32Array(sampleRate * 12); this.w = 0; this.filled = false;
+          this.port.onmessage = e => {
+            const n = Math.min(Math.round(e.data.seconds * sampleRate), this.filled ? this.buf.length : this.w);
+            const out = new Float32Array(n);
+            for (let i = 0; i < n; i++) out[i] = this.buf[(this.w - n + i + this.buf.length) % this.buf.length];
+            this.port.postMessage({ samples: out, sr: sampleRate }, [out.buffer]);
+          };
+        }
+        process(inputs) {
+          const a = inputs[0][0], b = inputs[0][1] || a;
+          if (a) for (let i = 0; i < a.length; i++) {
+            this.buf[this.w] = (a[i] + b[i]) * 0.5;
+            if (++this.w >= this.buf.length) { this.w = 0; this.filled = true; }
+          }
+          return true;
+        }
+      }
+      registerProcessor('tap', TapProcessor);
+    }
+
+    // ─── MECHANICAL SOUNDS (synthesized; all respect the Effects toggle) ──
     const Sfx = {
-      on: () => State.effectsEnabled && State.audioCtx,
+      on: () => State.effectsEnabled && State.ctxReady,
 
-      click() {
+      /** One hit: an optional pitched body (f0 → f1) and/or a band of noise, each with a fast decay. */
+      hit({ f0 = 0, f1 = f0, type = 'sine', dur = 0.05, gain = 0.06, noise = 0, nf = 2000, nf1 = nf, q = 1, at = 0 }) {
         if (!Sfx.on()) return;
         try {
-          const t = State.audioCtx.currentTime;
-          const osc = State.audioCtx.createOscillator();
-          const g = State.audioCtx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(800, t); osc.frequency.exponentialRampToValueAtTime(100, t + 0.05);
-          g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
-          osc.connect(g).connect(State.globalGain); osc.start(); osc.stop(t + 0.05);
+          const ctx = State.audioCtx, t = ctx.currentTime + at;
+          if (f0) {
+            const osc = ctx.createOscillator(), g = ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(f0, t); osc.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+            g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.004);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+            osc.connect(g).connect(State.globalGain); osc.start(t); osc.stop(t + dur + 0.02);
+          }
+          if (noise) {
+            const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+            src.buffer = Engine.noiseBuffer();
+            f.type = 'bandpass'; f.Q.value = q;
+            f.frequency.setValueAtTime(nf, t); f.frequency.exponentialRampToValueAtTime(nf1, t + dur);
+            g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(noise, t + 0.004);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+            src.connect(f).connect(g).connect(State.globalGain);
+            src.start(t, Math.random()); src.stop(t + dur + 0.02);
+          }
         } catch (e) {}
       },
 
-      clunk() {
-        if (!Sfx.on()) return;
-        try {
-          const t = State.audioCtx.currentTime;
-          const osc = State.audioCtx.createOscillator();
-          const g = State.audioCtx.createGain();
-          osc.type = 'triangle';
-          osc.frequency.setValueAtTime(120, t); osc.frequency.exponentialRampToValueAtTime(40, t + 0.1);
-          g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
-          osc.connect(g).connect(State.globalGain); osc.start(); osc.stop(t + 0.1);
-        } catch (e) {}
+      click() { Sfx.hit({ f0: 800, f1: 100, dur: 0.05, gain: 0.06 }); },                                   // UI key
+      clunk() { Sfx.hit({ f0: 120, f1: 40, type: 'triangle', dur: 0.1, gain: 0.12 }); },
+      whoosh(up) { if (!State.scratchMode) Sfx.hit({ noise: 0.07, nf: up ? 300 : 800, nf1: up ? 800 : 300, dur: 0.15 }); },   // hand on / off the record
+      cue() { Sfx.hit({ f0: 1700, f1: 500, dur: 0.03, gain: 0.04, noise: 0.05, nf: 3200, q: 2 }); },       // cue-lever click
+      armLift() { Sfx.hit({ noise: 0.03, nf: 500, nf1: 1300, dur: 0.14, q: 0.8 }); },
+      armLower() { Sfx.hit({ noise: 0.025, nf: 1200, nf1: 450, dur: 0.3, q: 0.8 }); },
+      needleDrop() {                                                                                       // thump, then the lead-in crackle comes from the surface
+        Sfx.hit({ f0: 96, f1: 42, dur: 0.17, gain: 0.2 });
+        Sfx.hit({ noise: 0.13, nf: 2600, nf1: 900, dur: 0.04, q: 0.7 });
       },
-
-      whoosh(up) {
-        if (State.scratchMode || !Sfx.on()) return;
-        try {
-          const ctx = State.audioCtx, t = ctx.currentTime;
-          const src = ctx.createBufferSource();
-          src.buffer = Engine.noiseBuffer();
-          const f = ctx.createBiquadFilter();
-          f.type = 'bandpass';
-          if (up) { f.frequency.setValueAtTime(300, t); f.frequency.linearRampToValueAtTime(800, t + 0.15); }
-          else { f.frequency.setValueAtTime(800, t); f.frequency.linearRampToValueAtTime(300, t + 0.15); }
-          const g = ctx.createGain();
-          g.gain.setValueAtTime(0.08, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
-          src.connect(f).connect(g).connect(State.globalGain); src.start(); src.stop(t + 0.15);
-        } catch (e) {}
+      motor(on) {                                                                                          // relay and belt take-up, or release
+        Sfx.hit({ f0: on ? 130 : 95, f1: on ? 46 : 36, type: 'triangle', dur: 0.12, gain: 0.13 });
+        Sfx.hit({ noise: 0.05, nf: 1800, dur: 0.025, q: 1.5 });
       },
-
-      cue() { Sfx.click(); },
-      needleDrop() { Sfx.clunk(); },
-      motor() { Sfx.clunk(); },
-      thump() { Sfx.clunk(); },
-      detent() { Sfx.click(); },
+      detent() {                                                                                           // speed switch: two quick clicks
+        Sfx.hit({ f0: 1300, f1: 300, dur: 0.025, gain: 0.05, noise: 0.05, nf: 2400, q: 2 });
+        Sfx.hit({ f0: 900, f1: 220, dur: 0.03, gain: 0.06, noise: 0.05, nf: 1800, q: 2, at: 0.055 });
+      },
+      thump() {                                                                                            // locked groove, once per turn
+        Sfx.hit({ f0: 72, f1: 36, dur: 0.2, gain: 0.16 });
+        Sfx.hit({ noise: 0.06, nf: 1500, dur: 0.02, q: 1 });
+      },
+      place() {                                                                                            // record set down on the mat
+        Sfx.hit({ f0: 150, f1: 55, dur: 0.22, gain: 0.11 });
+        Sfx.hit({ noise: 0.045, nf: 700, nf1: 250, dur: 0.25, q: 0.6, at: 0.02 });
+      }
     };
 
     // ─── AUDIO ENGINE ────────────────────────────────────────────
-    // The <audio> element is the normal path and the fallback. Its rate follows the record.
+    // Two ways to play a track. The worklet reads decoded PCM at the record's speed (any rate, either direction).
+    // The <audio> element is the fallback (undecodable, very long, or not decoded yet): its rate follows the record.
     const Engine = {
-      lastRate: 0, rateAt: 0, starting: false, pendingSeek: null, scrubAcc: 0,
+      wOn: false,            // the worklet is the transport for the current track
+      wPos: 0, wSeq: 0,      // last position it reported, and the seek generation that position belongs to
+      wAng: null,            // last { a, r, t } it reported: record angle, speed, audio-clock time
+      hand0: 0,
+      lastRate: 0, rateAt: 0, starting: false, pendingSeek: null, scrubAcc: 0, toneAt: 0, cfgKey: '',
 
       ensure() {
         if (State.ctxReady) {
-          if (State.audioCtx?.state === 'suspended') State.audioCtx.resume();
+          if (State.audioCtx.state === 'suspended') State.audioCtx.resume();
           return;
         }
         const Ctx = window.AudioContext || window.webkitAudioContext;
         if (!Ctx) return;
         try {
           const ctx = State.audioCtx = new Ctx();
-          State.globalGain = ctx.createGain();
+          const gain = v => { const g = ctx.createGain(); g.gain.value = v; return g; };
+          const filter = (type, f, q) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; if (q) b.Q.value = q; return b; };
+
+          State.globalGain = gain(1);
           State.globalGain.connect(ctx.destination);
           State.srcNode = ctx.createMediaElementSource(DOM.audio);
-          State.bassEQ = ctx.createBiquadFilter();
-          State.bassEQ.type = 'lowshelf'; State.bassEQ.frequency.value = 250;
-          State.midEQ = ctx.createBiquadFilter();
-          State.midEQ.type = 'peaking'; State.midEQ.frequency.value = 1000; State.midEQ.Q.value = 1;
-          State.trebleEQ = ctx.createBiquadFilter();
-          State.trebleEQ.type = 'highshelf'; State.trebleEQ.frequency.value = 4000;
-          State.masterGain = ctx.createGain();
-          State.masterGain.gain.value = 1;
+          State.elGain = gain(1);
+          State.musicGain = gain(1);          // muted while a hand scrubs with Scratch off
+          State.noiseGain = gain(0);          // Vinyl noise slider
+          State.bassEQ = filter('lowshelf', 250);
+          State.midEQ = filter('peaking', 1000, 1);
+          State.trebleEQ = filter('highshelf', 4000);
+          State.masterGain = gain(1);
           State.analyser = ctx.createAnalyser();
           State.analyser.fftSize = 256;
           State.freqData = new Uint8Array(State.analyser.frequencyBinCount);
-          State.srcNode.connect(State.bassEQ).connect(State.midEQ)
-            .connect(State.trebleEQ).connect(State.masterGain)
-            .connect(State.analyser).connect(State.globalGain);
 
-          const sr = ctx.sampleRate;
-          const len = sr * 2;
-          const buf = ctx.createBuffer(1, len, sr);
-          const d = buf.getChannelData(0);
-          for (let i = 0; i < len; i++) {
-            d[i] = Math.random() < 0.005 ? (Math.random() - 0.5) * 0.6 : (Math.random() - 0.5) * 0.03;
-          }
-          State.noiseNode = ctx.createBufferSource();
-          State.noiseNode.buffer = buf;
-          State.noiseNode.loop = true;
-          const nf = ctx.createBiquadFilter();
-          nf.type = 'highpass'; nf.frequency.value = 300;
-          State.noiseGain = ctx.createGain();
-          State.noiseGain.gain.value = 0;
-          State.noiseNode.connect(nf).connect(State.noiseGain).connect(State.globalGain);
-          State.noiseNode.start();
+          State.srcNode.connect(State.elGain).connect(State.bassEQ);
+          State.musicGain.connect(State.bassEQ);
+          State.noiseGain.connect(State.bassEQ);
+          State.bassEQ.connect(State.midEQ).connect(State.trebleEQ).connect(State.masterGain);
+          Engine.buildVinylChain(ctx, State.masterGain).connect(State.analyser).connect(State.globalGain);
+
           State.ctxReady = true;
           DOM.audio.volume = 1;
           Engine.updateParams();
+          Engine.initWorklet(ctx);
         } catch (e) { console.warn('AudioContext init failed:', e); }
       },
 
+      /** What a cut record does to the signal, after the EQ: bass folded to mono, channel crosstalk,
+          high-frequency roll-off and a little soft saturation. Returns the chain's output node. */
+      buildVinylChain(ctx, input) {
+        const gain = v => { const g = ctx.createGain(); g.gain.value = v; return g; };
+        // mid/side matrix
+        input.channelCount = 2; input.channelCountMode = 'explicit';
+        const split = ctx.createChannelSplitter(2), merge = ctx.createChannelMerger(2);
+        const mid = gain(0.5), side = gain(0.5), sideNeg = gain(-0.5), flip = gain(-1);
+        const sideHP = ctx.createBiquadFilter();                 // no stereo below ~120 Hz: the cutter cannot do it
+        sideHP.type = 'highpass'; sideHP.frequency.value = C.BASS_MONO_HZ; sideHP.Q.value = 0.707;
+        const xt = Math.pow(10, C.CROSSTALK_DB / 20);            // crosstalk narrows the side signal
+        const sideOut = gain((1 - xt) / (1 + xt));
+        input.connect(split);
+        split.connect(mid, 0); split.connect(mid, 1);
+        split.connect(side, 0); split.connect(sideNeg, 1); sideNeg.connect(side);
+        side.connect(sideHP).connect(sideOut);
+        mid.connect(merge, 0, 0); mid.connect(merge, 0, 1);
+        sideOut.connect(merge, 0, 0); sideOut.connect(flip).connect(merge, 0, 1);
+
+        State.rolloff = ctx.createBiquadFilter();
+        State.rolloff.type = 'lowpass'; State.rolloff.frequency.value = C.ROLLOFF_HZ; State.rolloff.Q.value = 0.707;
+
+        // soft saturation: unity gain for small signals, rounding off the peaks; the curve spans ±2 so drive never hard-clips
+        const curve = new Float32Array(2049);
+        for (let i = 0; i < curve.length; i++) { const x = (i / 1024 - 1) * 2; curve[i] = Math.tanh(C.SATURATION * x) / C.SATURATION; }
+        const shaper = ctx.createWaveShaper();
+        shaper.curve = curve; shaper.oversample = '2x';
+        State.driveIn = gain(0.5); State.driveOut = gain(1);
+        merge.connect(State.rolloff).connect(State.driveIn).connect(shaper).connect(State.driveOut);
+        return State.driveOut;
+      },
+
+      async initWorklet(ctx) {
+        if (!ctx.audioWorklet || !window.AudioWorkletNode) return;
+        const src = `(${workletSource.toString()})();`;
+        const blobUrl = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
+        try {
+          // A Blob URL is refused from file:// in Chromium and WebKit (opaque origin); a data: URL is accepted everywhere.
+          try { await ctx.audioWorklet.addModule(blobUrl); }
+          catch { await ctx.audioWorklet.addModule('data:application/javascript;charset=utf-8,' + encodeURIComponent(src)); }
+          const node = new AudioWorkletNode(ctx, 'deck', {
+            numberOfInputs: 0, numberOfOutputs: 2, outputChannelCount: [2, 2],
+            processorOptions: { slipTau: C.SLIP_TAU, handTau: C.HAND_TAU / 2, dps: C.DEG_PER_SEC, wow: C.WOW }
+          });
+          node.port.onmessage = e => Engine.onWorklet(e.data);
+          node.connect(State.musicGain, 0);
+          node.connect(State.noiseGain, 1);
+          State.deckNode = node;
+          if (Debug) {
+            Debug.tap = new AudioWorkletNode(ctx, 'tap');
+            const mute = ctx.createGain(); mute.gain.value = 0;
+            State.globalGain.connect(Debug.tap).connect(mute).connect(ctx.destination);
+          }
+          // bring the new processor up to date with the deck
+          Engine.setSpeed(); Engine.setGate(); Engine.pushCfg(true); Wear.send();
+          State.playlist.forEach(Engine.handOver);
+          Engine.prepare(State.currentIdx);
+        } catch (e) { console.warn('AudioWorklet unavailable, using the media element only:', e); }
+        finally { URL.revokeObjectURL(blobUrl); }
+      },
+
+      onWorklet(m) {
+        if (m.ended !== undefined) {
+          if (Engine.wOn && State.playlist[State.currentIdx]?.id === m.ended) Player.onTrackEnd();
+          return;
+        }
+        Engine.wAng = m;
+        if (Engine.wOn && m.q === Engine.wSeq) Engine.wPos = m.p;
+      },
+
+      /** Smoothed parameter change: everything audible goes through here, so nothing zippers or clicks. */
+      aim(param, v, tau) { param.setTargetAtTime(v, State.audioCtx.currentTime, tau); },
+
       updateParams() {
         if (!State.ctxReady) return;
-        const t = State.audioCtx.currentTime;
-        State.globalGain?.gain.setTargetAtTime(parseFloat(DOM.vol.value), t, 0.05);
-        State.bassEQ?.gain.setTargetAtTime(parseFloat(DOM.bassSlider.value), t, 0.05);
-        State.midEQ?.gain.setTargetAtTime(parseFloat(DOM.midSlider.value), t, 0.05);
-        State.trebleEQ?.gain.setTargetAtTime(parseFloat(DOM.trebleSlider.value), t, 0.05);
-        const nv = Deck.contact ? parseFloat(DOM.noiseSlider.value) * 0.25 : 0;
-        State.noiseGain?.gain.setTargetAtTime(nv, t, 0.1);
+        Engine.aim(State.globalGain.gain, parseFloat(DOM.vol.value), 0.05);
+        Engine.aim(State.bassEQ.gain, parseFloat(DOM.bassSlider.value), 0.05);
+        Engine.aim(State.midEQ.gain, parseFloat(DOM.midSlider.value), 0.05);
+        Engine.aim(State.trebleEQ.gain, parseFloat(DOM.trebleSlider.value), 0.05);
+        // Vinyl noise is the master level for everything the surface adds. The lead-in crackle after a needle drop
+        // is also a mechanical sound, so with Effects on it has a floor.
+        let nv = parseFloat(DOM.noiseSlider.value);
+        if (Deck.seg?.kind === 'leadin' && State.effectsEnabled) nv = Math.max(nv, C.LEADIN_NOISE_FLOOR);
+        Engine.aim(State.noiseGain.gain, nv * C.NOISE_GAIN, 0.08);
+        // Scratch off = silent scrub, as in the original; Scratch on = hear the record under the hand.
+        Engine.aim(State.musicGain.gain, Deck.held && !State.scratchMode ? 0 : 1, 0.004);
+        Engine.tone(true);
+        Engine.pushCfg();
+      },
+
+      /** Roll-off and distortion depend on speed, condition and how far in the stylus is (inner grooves are slower). */
+      tone(force) {
+        if (!State.ctxReady) return;
+        const now = performance.now();
+        if (!force && now - Engine.toneAt < 300) return;
+        Engine.toneAt = now;
+        const cond = C.CONDITIONS[Settings.v.condition];
+        const r = Deck.stylusR();
+        const inner = Utils.clamp((N.OUT - r) / (N.OUT - N.IN), 0, 1);
+        const base = State.currentRPM === 78 ? C.ROLLOFF_78_HZ : C.ROLLOFF_HZ;
+        const drive = 1 + C.INNER_DRIVE * inner + cond.dist;
+        Engine.aim(State.rolloff.frequency, base * cond.lp * (1 - (1 - C.INNER_ROLLOFF) * inner), 0.15);
+        Engine.aim(State.driveIn.gain, 0.5 * drive, 0.15);
+        Engine.aim(State.driveOut.gain, 1 / drive, 0.15);
+        if (State.deckNode) {
+          const p = State.deckNode.parameters;
+          Engine.aim(p.get('radius'), r, 0.05);
+          Engine.aim(p.get('phi'), Geo.stylusPhi(Geo.angleFor(r)), 0.05);
+        }
+      },
+
+      /** Surface-noise settings for the worklet (sent only when they change). */
+      pushCfg(force) {
+        if (!State.deckNode) return;
+        const cond = C.CONDITIONS[Settings.v.condition], shellac = State.currentRPM === 78;
+        const cfg = {
+          imp: Settings.v.imperfection,
+          hiss: cond.hiss * (shellac ? C.SHELLAC_HISS : 1),
+          crackle: cond.crackle * (shellac ? 2 : 1),
+          pops: cond.pops,
+          shellac: shellac ? 1 : 0,
+          dense: Deck.seg?.kind === 'leadin' ? C.LEADIN_DENSITY : 1
+        };
+        const key = JSON.stringify(cfg);
+        if (!force && key === Engine.cfgKey) return;
+        Engine.cfgKey = key;
+        State.deckNode.port.postMessage({ cfg });
       },
 
       noiseBuffer() {
@@ -1992,28 +2380,140 @@
         return sum / (C.BASS_BINS * 255);
       },
 
-      // ── Transport ──
-      pos: () => Engine.pendingSeek ?? (DOM.audio.currentTime || 0),
+      // ── Decoding (current track and the next one only) ──
+      decode(arrayBuffer) {
+        // Before the first gesture there is no AudioContext yet; an offline one decodes just as well.
+        if (!Engine.decoder) {
+          const Off = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+          Engine.decoder = State.audioCtx || (Off ? new Off(2, 2, 48000) : null);
+        }
+        const ctx = State.audioCtx || Engine.decoder;
+        if (!ctx) return Promise.reject(new Error('no decoder'));
+        return new Promise((res, rej) => {
+          const p = ctx.decodeAudioData(arrayBuffer, res, rej);     // callback form for old Safari, promise form elsewhere
+          if (p?.catch) p.catch(rej);
+        });
+      },
 
-      dur: () => Utils.safeDuration() || State.playlist[State.currentIdx]?.duration || 0,
+      /** Loudness in 600 slices, for the groove shading. */
+      rms(buf) {
+        const d = buf.getChannelData(0), n = C.RMS_SLICES, out = new Uint8Array(n), per = d.length / n;
+        const vals = new Float32Array(n);
+        let max = 1e-6;
+        for (let s = 0; s < n; s++) {
+          let sum = 0, cnt = 0;
+          for (let i = Math.floor(s * per), end = Math.floor((s + 1) * per); i < end; i += 4) { sum += d[i] * d[i]; cnt++; }
+          vals[s] = Math.sqrt(sum / (cnt || 1));
+          if (vals[s] > max) max = vals[s];
+        }
+        for (let s = 0; s < n; s++) out[s] = Math.round(255 * Math.sqrt(vals[s] / max));
+        return out;
+      },
+
+      /** Decode track idx and its successor; drop everything else. One track at a time. */
+      async prepare(idx) {
+        if (idx < 0) return;
+        const wanted = () => [State.playlist[State.currentIdx], State.playlist[State.currentIdx + 1]];
+        const keep = [State.playlist[idx], State.playlist[idx + 1]].filter(Boolean);
+        State.playlist.forEach(tr => {
+          if (keep.includes(tr) || (tr.pcm !== 'ready' && tr.pcm !== 'held')) return;
+          if (tr.pcm === 'ready') State.deckNode?.port.postMessage({ unload: tr.id });
+          tr.pcm = null; tr.pcmCh = null;
+        });
+        for (const tr of keep) {
+          if (tr.pcm) continue;
+          if (tr.duration > C.PCM_MAX_SEC) { tr.pcm = 'long'; continue; }
+          tr.pcm = 'loading';
+          try {
+            const buf = await Engine.decode(await tr.blob.arrayBuffer());
+            if (tr.pcm !== 'loading') continue;
+            if (!wanted().includes(tr)) { tr.pcm = null; continue; }  // skipped past while decoding
+            if (buf.duration > C.PCM_MAX_SEC) { tr.pcm = 'long'; continue; }
+            if (!tr.rms) {
+              tr.rms = Engine.rms(buf);
+              Persistence.patchTrack(tr.id, { rms: tr.rms });
+              Render.schedule();
+            }
+            tr.pcmCh = [];
+            for (let c = 0; c < Math.min(2, buf.numberOfChannels); c++) {
+              const a = new Float32Array(buf.length);
+              buf.copyFromChannel(a, c);
+              tr.pcmCh.push(a);
+            }
+            tr.pcmSr = buf.sampleRate; tr.pcmDur = buf.duration;
+            tr.pcm = 'held';
+            Engine.handOver(tr);
+          } catch (e) { tr.pcm = 'failed'; }                          // the media element may still play it
+        }
+      },
+
+      /** Move decoded samples to the audio thread (transferred, not copied) and switch to them if that track is on. */
+      handOver(tr) {
+        if (tr.pcm !== 'held' || !State.deckNode) return;
+        State.deckNode.port.postMessage({ load: tr.id, ch: tr.pcmCh, sr: tr.pcmSr }, tr.pcmCh.map(a => a.buffer));
+        tr.pcmCh = null;
+        tr.pcm = 'ready';
+        if (tr === State.playlist[State.currentIdx] && !Engine.wOn) {
+          const a = DOM.audio, t = Engine.pos();
+          Engine.cue(tr, t);
+          if (!a.paused) {                                            // take over mid-track from the media element
+            Engine.aim(State.elGain.gain, 0, 0.008);
+            setTimeout(() => { a.pause(); Engine.aim(State.elGain.gain, 1, 0.01); }, 60);
+          }
+        }
+      },
+
+      cue(tr, t) {
+        Engine.wOn = true;
+        Engine.wPos = t;
+        State.deckNode.port.postMessage({ cue: tr.id, pos: t, seq: ++Engine.wSeq });
+        Engine.run();
+      },
+
+      /** Tell the worklet whether the stylus is in music, and whether a hand on the record should move the music. */
+      run() {
+        const kind = Deck.seg?.kind;
+        State.deckNode?.port.postMessage({ run: kind === 'track', scrub: !kind || kind === 'track' });
+        Engine.pushCfg();
+      },
+
+      // ── Transport ──
+      pos: () => Engine.wOn ? Engine.wPos : (Engine.pendingSeek ?? (DOM.audio.currentTime || 0)),
+
+      dur() {
+        const tr = State.playlist[State.currentIdx];
+        return (Engine.wOn && tr?.pcmDur) || Utils.safeDuration() || tr?.duration || 0;
+      },
 
       load(track) {
         const a = DOM.audio;
         Engine.pendingSeek = null;
+        Engine.scrubAcc = 0;
         a.src = track.url;
         // A real deck changes pitch with speed. Browsers reset this on a new source, so set it every time.
         a.preservesPitch = a.mozPreservesPitch = a.webkitPreservesPitch = false;
         Engine.lastRate = 0;
+        Engine.wOn = false;
+        if (track.pcm === 'ready' && State.deckNode) Engine.cue(track, 0);
+        else State.deckNode?.port.postMessage({ cue: null, pos: 0, seq: ++Engine.wSeq });
+        Engine.prepare(State.currentIdx);
       },
 
       unload() {
         try { DOM.audio.removeAttribute('src'); DOM.audio.load(); } catch {}
         Engine.pendingSeek = null;
+        Engine.wOn = false;
+        State.deckNode?.port.postMessage({ cue: null, pos: 0, seq: ++Engine.wSeq });
       },
 
       seek(t) {
-        const a = DOM.audio;
         t = Math.max(0, t);
+        if (Engine.wOn) {
+          Engine.wPos = Math.min(t, Engine.dur());
+          State.deckNode.port.postMessage({ seek: Engine.wPos, seq: ++Engine.wSeq });
+          return;
+        }
+        const a = DOM.audio;
         if (a.readyState >= 1) {
           Engine.pendingSeek = null;
           try { a.currentTime = Math.min(t, Utils.safeDuration() || t); } catch {}
@@ -2021,32 +2521,60 @@
           Engine.pendingSeek = t;
           a.addEventListener('loadedmetadata', () => {
             const p = Engine.pendingSeek; Engine.pendingSeek = null;
-            if (p !== null) Engine.seek(p);
+            if (p !== null && !Engine.wOn) Engine.seek(p);
           }, { once: true });
         } else Engine.pendingSeek = t;
       },
 
-      /** The hand moved the record by this many seconds of groove. The element cannot play backwards, so scrub silently. */
+      /** The hand moved the record by this many seconds of groove. The worklet follows the hand by itself;
+          the media element cannot play backwards, so there it is a silent scrub. */
       scrub(sec) {
+        if (Engine.wOn) return;
         Engine.scrubAcc += sec;
         if (Math.abs(Engine.scrubAcc) < 0.03) return;
         Engine.seek(Utils.clamp(Engine.pos() + Engine.scrubAcc, 0, Engine.dur()));
         Engine.scrubAcc = 0;
       },
 
-      setSpeed() {},
-      hold() {},
-      hand() {},
+      /** Motor command: the platter approaches its target speed exponentially, on the audio clock. */
+      setSpeed() {
+        if (!State.deckNode) return;
+        const p = State.deckNode.parameters, tau = Deck.motorOn ? C.SPINUP_TAU : C.COAST_TAU;
+        Engine.aim(p.get('rate'), Deck.target(), tau);
+        Engine.aim(p.get('motor'), Deck.motorOn ? 1 : 0, tau);
+      },
 
-      /** Make the media element follow the record: its rate is the record's speed, and it only runs with the stylus in a track. */
+      setGate() {
+        if (State.deckNode) Engine.aim(State.deckNode.parameters.get('gate'), Deck.contact ? 1 : 0, 0.004);
+      },
+
+      hold(on) {
+        Engine.hand0 = Deck.hand;
+        State.deckNode?.port.postMessage({ hold: on });
+        Engine.updateParams();
+      },
+
+      hand() { State.deckNode?.port.postMessage({ hand: Deck.hand - Engine.hand0 }); },
+
+      /** Record angle as the audio thread has it, moved to "what is leaving the speakers now". */
+      heardAngle() {
+        const m = Engine.wAng, ctx = State.audioCtx;
+        if (!m || !ctx || ctx.state !== 'running') return null;
+        const lat = ctx.outputLatency || ctx.baseLatency || 0;
+        return m.a + m.r * C.DEG_PER_SEC * (ctx.currentTime - lat - m.t);
+      },
+
+      /** Media-element path: its rate is the record's speed, and it only runs with the stylus in a track. */
       follow() {
         const a = DOM.audio, w = Deck.wr;
-        const run = Deck.contact && Deck.seg?.kind === 'track' && !Deck.held && w >= C.EL_MIN_RATE && !a.ended;
+        const run = !Engine.wOn && Deck.contact && Deck.seg?.kind === 'track' && !Deck.held && w >= C.EL_MIN_RATE && !a.ended;
         if (!run) { if (!a.paused) a.pause(); return; }
         const now = performance.now(), r = Utils.clamp(w, C.EL_MIN_RATE, C.EL_MAX_RATE);
         if (Math.abs(r - Engine.lastRate) > 0.003 * r && now - Engine.rateAt > 30) {
           try { a.playbackRate = r; } catch {}
           Engine.lastRate = r; Engine.rateAt = now;
+          // near a standstill browsers mute or stutter: fade instead
+          if (State.ctxReady) Engine.aim(State.elGain.gain, Utils.clamp((w - C.EL_MIN_RATE) / 0.18, 0, 1), 0.03);
         }
         if (a.paused && !Engine.starting) {
           Engine.starting = true;
@@ -2119,6 +2647,7 @@
         Deck.step();
         Deck.motorOn = on;
         Sfx.motor(on);
+        Engine.ensure();
         DOM.motorBtn.setAttribute('aria-pressed', on);
         DOM.turntable.classList.toggle('motor-on', on);
         Engine.setSpeed();
@@ -2145,13 +2674,23 @@
           Deck.angR += Deck.wr * C.DEG_PER_SEC * dt;
         }
         Deck.angP += Deck.wp * C.DEG_PER_SEC * dt;
+        const turned = Deck.angR - before;
+        // The audio thread owns the record's true angle (it also carries wow and flutter). Lock the drawn record to
+        // what is being heard, so a scratch mark passes under the stylus exactly when its tick sounds.
+        const heard = Deck.held ? null : Engine.heardAngle();
+        if (heard !== null) {
+          let d = (heard - Deck.angR) % 360;
+          if (d > 180) d -= 360; else if (d < -180) d += 360;
+          Deck.angR += d * (1 - Math.exp(-dt / C.SYNC_TAU));
+        }
 
         // Strobe marks: under the lamp they alias, standing still at the nominal speed.
         const w = Deck.wp * C.DEG_PER_SEC, period = C.RPM[State.currentRPM] * C.DEG_PER_SEC;
         Deck.strobeV = Deck.motorOn ? w - period * Math.round(w / period) : w;
         Deck.strobe = (Deck.strobe + Deck.strobeV * dt) % 360;
 
-        Deck.ride((Deck.angR - before) * C.SEC_PER_DEG);
+        Deck.ride(turned * C.SEC_PER_DEG);
+        Engine.tone();
         Engine.follow();
       },
 
@@ -2176,8 +2715,11 @@
           if (State.currentIdx !== idx) Player.loadTrack(idx);
           Engine.seek(t);
         }
-        Engine.updateParams();
+        Deck.sync();
       },
+
+      /** Push the stylus state to the audio side. */
+      sync() { Engine.setGate(); Engine.run(); Engine.updateParams(); Engine.follow(); },
 
       segDone() {
         const s = Deck.seg;
@@ -2218,11 +2760,12 @@
       drop(pt = Deck.dropPoint(), slow = Arm.mode === 'rest') {
         Deck.unseat();
         Deck.dropping = true;
-        Sfx.cue();
+        Sfx.cue(); Sfx.armLower();
         Arm.cueTo(pt.r, slow, () => {
           Deck.dropping = false;
           Deck.contact = true; State.needleOn = true;
           Sfx.needleDrop();
+          Arm.bob = 0.25;
           Deck.begin(pt.kind, pt.idx, pt.t);
         });
       },
@@ -2234,12 +2777,11 @@
         Deck.seg = null;
         if (s?.kind === 'gap') Player.loadTrack(s.idx);                         // it was on its way into the next track
         else if (s?.kind === 'runout' || s?.kind === 'locked') Player.loadTrack(0);   // side finished: start over
-        Engine.updateParams();
-        Engine.follow();
+        Deck.sync();
       },
 
-      lift() { Deck.unseat(); Sfx.cue(); Arm.liftTo(); },
-      park() { Deck.unseat(); Arm.park(); },
+      lift() { Deck.unseat(); Sfx.cue(); Sfx.armLift(); Arm.liftTo(); },
+      park() { if (Arm.mode !== 'rest') Sfx.armLift(); Deck.unseat(); Arm.park(); },
 
       /** Cue lever, tonearm click, Lift/Drop button: stylus only, the motor keeps turning. */
       toggleCue() {
@@ -2371,19 +2913,22 @@
         } catch (e) { resolve(); }
       }),
 
-      updateTrackNotes: (id, notes) => new Promise(resolve => {
+      /** Merge fields into a stored track. Adds optional fields only; the schema stays as the original wrote it. */
+      patchTrack: (id, patch) => new Promise(resolve => {
         if (!State.db) return resolve();
         try {
           const tx = State.db.transaction(C.DB_TRACKS, 'readwrite');
           const store = tx.objectStore(C.DB_TRACKS);
           const req = store.get(id);
           req.onsuccess = () => {
-            if (req.result) { req.result.notes = notes; store.put(req.result); }
+            if (req.result) store.put(Object.assign(req.result, patch));
           };
           tx.oncomplete = () => resolve();
           tx.onerror = () => resolve();
         } catch { resolve(); }
       }),
+
+      updateTrackNotes: (id, notes) => Persistence.patchTrack(id, { notes }),
 
       deleteTrack: id => new Promise(resolve => {
         if (!State.db) return resolve();
@@ -2460,6 +3005,7 @@
       },
 
       saveOrder() {
+        if (State.demo) return;
         try { localStorage.setItem(C.TRACKS_KEY, JSON.stringify(State.playlist.map(t => t.id))); } catch {}
       }
     };
@@ -2773,6 +3319,8 @@
         Persistence.savePrefs();
         if (State.shuffleOn) Player.rebuildShuffleQueue();
         if (State.currentIdx < 0 && State.playlist.length) Player.loadTrack(firstNewIdx);
+        else Engine.prepare(State.currentIdx);       // the new track may be the next one
+        Sfx.place();
       },
 
       probeDuration: url => new Promise(resolve => {
@@ -3469,11 +4017,57 @@
       }
     };
 
+    // ─── DEMO (?demo): three short synthesized tracks, in memory only ──
+    const Demo = {
+      /** A little procedural tune as a 16-bit stereo WAV: kick, bass, a panned arpeggio and hats. */
+      wav(seconds, bpm, root, seed) {
+        const sr = 32000, n = Math.floor(seconds * sr), rnd = Render.rng(seed);
+        const buf = new ArrayBuffer(44 + n * 4), v = new DataView(buf);
+        const str = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+        str(0, 'RIFF'); v.setUint32(4, 36 + n * 4, true); str(8, 'WAVEfmt '); v.setUint32(16, 16, true);
+        v.setUint16(20, 1, true); v.setUint16(22, 2, true); v.setUint32(24, sr, true); v.setUint32(28, sr * 4, true);
+        v.setUint16(32, 4, true); v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, n * 4, true);
+        const beat = 60 / bpm, scale = [0, 3, 5, 7, 10, 12, 15, 17], hz = s => root * Math.pow(2, s / 12);
+        const prog = [0, 0, 5, 3], TAU = Math.PI * 2;
+        for (let i = 0; i < n; i++) {
+          const t = i / sr, b = t / beat, bar = Math.floor(b / 4), tb = (b % 1) * beat;
+          const chord = prog[bar % 4], step = Math.floor(b * 2), ts = ((b * 2) % 1) * beat / 2;
+          const fade = Math.min(1, t / 0.4, (seconds - t) / 1.2);
+          const kick = Math.sin(TAU * (48 * tb + 60 * (1 - Math.exp(-tb * 30)) / 30)) * Math.exp(-tb * 9) * 0.55;
+          const bass = Math.sin(TAU * hz(chord - 12) * t) * 0.22 * (0.6 + 0.4 * Math.exp(-tb * 4));
+          const note = hz(chord + scale[(step * 3 + bar) % scale.length]);
+          const arp = (Math.sin(TAU * note * t) + 0.35 * Math.sin(TAU * note * 2 * t)) * Math.exp(-ts * 7) * 0.2;
+          const hat = (rnd() * 2 - 1) * Math.exp(-((b * 2 + 1) % 2) * beat / 2 * 60) * 0.1;
+          const pan = step % 2 ? 0.25 : 0.75;
+          const l = (kick + bass + arp * (1 - pan) * 2 + hat * 0.8) * fade, r = (kick + bass + arp * pan * 2 + hat * 1.2) * fade;
+          v.setInt16(44 + i * 4, Math.max(-1, Math.min(1, l)) * 30000, true);
+          v.setInt16(46 + i * 4, Math.max(-1, Math.min(1, r)) * 30000, true);
+        }
+        return buf;
+      },
+
+      async load() {
+        const specs = [['Warm Up', 24, 108, 110, 1], ['Slow Burn', 30, 84, 98, 2], ['Last Call', 18, 124, 123.5, 3]];
+        const files = specs.map(([name, sec, bpm, root, seed]) => new File([Demo.wav(sec, bpm, root, seed)], name + '.wav', { type: 'audio/wav' }));
+        await Player.addFiles(files);
+        State.playlist.forEach(t => { t.artist = 'Synth Demo'; t.album = 'Test Pressing'; });
+        UI.renderTracklist();
+        UI.renderSongInfo(State.playlist[State.currentIdx]);
+      }
+    };
+
     // ─── DEBUG / SELF-TEST (only with ?debug or ?selftest in the URL) ──
     const Query = new URLSearchParams(location.search);
     const Debug = Query.has('debug') ? {
-      frames: [],
-      frame(ts) { if (Debug.frames.push(ts) > 1200) Debug.frames.shift(); }
+      frames: [], tap: null,
+      frame(ts) { if (Debug.frames.push(ts) > 1200) Debug.frames.shift(); },
+      /** The last `seconds` of what went to the speakers (mono), from the test tap in the worklet. */
+      capture(seconds) {
+        return new Promise(resolve => {
+          Debug.tap.port.onmessage = e => resolve(e.data);
+          Debug.tap.port.postMessage({ seconds });
+        });
+      }
     } : null;
     if (Debug) window.__deck = { Debug, Deck, Arm, Engine, Geo, Program, Player, Settings, State, N, C };
 
@@ -3524,12 +4118,18 @@
         }
       }
 
-      try {
-        await Persistence.openDB();
-        await Player.restoreTracks();
-        const coverUrl = await Persistence.loadCover();
-        if (coverUrl) UI.setCoverFromDataUrl(coverUrl);
-      } catch (e) { console.warn('DB init failed:', e); }
+      if (Query.has('demo')) {
+        // Demo runs beside the saved library, never in it: the database is not opened, so nothing is written.
+        State.demo = true;
+        await Demo.load();
+      } else {
+        try {
+          await Persistence.openDB();
+          await Player.restoreTracks();
+          const coverUrl = await Persistence.loadCover();
+          if (coverUrl) UI.setCoverFromDataUrl(coverUrl);
+        } catch (e) { console.warn('DB init failed:', e); }
+      }
 
       UI.renderTracklist();
       UI.renderSongInfo(State.playlist[State.currentIdx] || null);
