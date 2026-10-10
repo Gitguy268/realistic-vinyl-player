@@ -93,18 +93,44 @@
       gap: 16px; max-width: 700px; width: 100%;
     }
 
-    /* ── Turntable ─────────────────────────────── */
+    /* ── Procedural textures (inline SVG turbulence; no image files) ── */
+    :root {
+      --u: calc(var(--vinyl-size) / 100);   /* 1u = 1% of the record square; every deck part scales with it */
+      --light: 0deg;                        /* light direction, nudged a few degrees by the cursor */
+      --wear: .33;                          /* record condition 0 (mint) .. 1 (beat-up) */
+      --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='.5 0 0 0 .25 .5 0 0 0 .25 .5 0 0 0 .25 0 0 0 0 1'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
+      --felt: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.4 .5' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix values='.9 0 0 0 .05 .9 0 0 0 .05 .9 0 0 0 .05 0 0 0 0 1'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+      --walnut: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='480' preserveAspectRatio='none'%3E%3Cfilter id='w' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.004 .13' numOctaves='5' seed='11'/%3E%3CfeColorMatrix values='.66 0 0 0 -.01 .44 0 0 0 -.03 .26 0 0 0 -.03 0 0 0 0 1'/%3E%3C/filter%3E%3Crect width='640' height='480' filter='url(%23w)'/%3E%3C/svg%3E");
+      --pores: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='320'%3E%3Cfilter id='p' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.02 1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='.7 0 0 0 .15 .7 0 0 0 .15 .7 0 0 0 .15 0 0 0 0 1'/%3E%3C/filter%3E%3Crect width='320' height='320' filter='url(%23p)'/%3E%3C/svg%3E");
+    }
+
+    /* ── Turntable (plinth) ────────────────────── */
     .turntable {
       position: relative;
       width: calc(var(--vinyl-size) + 90px);
       height: calc(var(--vinyl-size) + 50px);
       border-radius: 14px;
-      background: var(--surface);
-      box-shadow: var(--shadow);
+      /* Matte modern plinth: fine grain over a soft top-left light, tinted by the Panel colour. */
+      background:
+        var(--grain),
+        linear-gradient(150deg, rgba(255,255,255,.07), rgba(255,255,255,0) 42%, rgba(0,0,0,.16)),
+        var(--surface);
+      background-blend-mode: soft-light, normal, normal;
+      box-shadow: var(--shadow), 0 2px 3px rgba(0,0,0,.45),
+        inset 0 1px 0 rgba(255,255,255,.10), inset 0 -2px 0 rgba(0,0,0,.30), inset 0 0 0 1px rgba(0,0,0,.18);
       display: flex; align-items: center; justify-content: center;
-      transition: background var(--transition), box-shadow var(--transition),
+      transition: background-color var(--transition), box-shadow var(--transition),
                   width var(--transition), height var(--transition);
     }
+    /* Rubber feet peeking out under the front edge */
+    .turntable::before, .turntable::after {
+      content: ''; position: absolute; bottom: -5px; height: 7px; width: 11%;
+      border-radius: 0 0 5px 5px; z-index: -1;
+      background: linear-gradient(180deg, #050505, #1c1c1d);
+      box-shadow: 0 2px 3px rgba(0,0,0,.5);
+    }
+    .turntable::before { left: 7%; }
+    .turntable::after { right: 7%; }
 
     @keyframes tt-bump {
       0% { transform: scale(1); }
@@ -113,7 +139,7 @@
     }
     .turntable.bump { animation: tt-bump 0.25s cubic-bezier(0.3, 1.5, 0.6, 1); }
 
-    /* ── Vinyl ─────────────────────────────────── */
+    /* ── Platter ───────────────────────────────── */
     .vinyl-wrap {
       position: relative;
       width: var(--vinyl-size); height: var(--vinyl-size);
@@ -122,30 +148,70 @@
       will-change: transform;
     }
     .vinyl-wrap:hover { transform: scale(1.008); }
-    .vinyl-wrap.dragging { cursor: grabbing; transform: scale(0.98); }
+    .vinyl-wrap.dragging { cursor: grabbing; transform: scale(0.992); }
 
+    .platter {
+      position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+      /* machined aluminium: lathe rings over a brushed sweep, bevelled rim */
+      background:
+        radial-gradient(circle closest-side, transparent 98.6%, rgba(255,255,255,.6) 99.2%, rgba(20,20,22,.7) 100%),
+        repeating-radial-gradient(circle, rgba(0,0,0,0) 0, rgba(0,0,0,0) 1px, rgba(0,0,0,.14) 1.5px, rgba(0,0,0,0) 2.2px),
+        conic-gradient(from 24deg, #8b8e93, #e7e9eb 8%, #9a9da2 16%, #55585d 25%, #a8abb0 33%, #eceef0 42%,
+          #898c91 50%, #54575c 58%, #a3a6ab 67%, #e3e5e7 75%, #8d9095 84%, #575a5f 92%, #8b8e93);
+      box-shadow: 0 calc(var(--u) * 1.1) calc(var(--u) * 2.8) rgba(0,0,0,.55), 0 1px 2px rgba(0,0,0,.65),
+                  inset 0 0 0 1px rgba(0,0,0,.4);
+    }
+    /* Strobe marks: 180 around the rim, so they stand still under a 100 Hz lamp at 33⅓ */
+    .platter-strobe {
+      position: absolute; inset: 0; border-radius: 50%; will-change: transform;
+      background: repeating-conic-gradient(#eceef0 0deg, #eceef0 .85deg, #131416 .95deg, #131416 1.9deg, #eceef0 2deg);
+      -webkit-mask: radial-gradient(circle closest-side, transparent 96.1%, #000 96.5%, #000 98.3%, transparent 98.7%);
+      mask: radial-gradient(circle closest-side, transparent 96.1%, #000 96.5%, #000 98.3%, transparent 98.7%);
+    }
+    .slipmat {
+      position: absolute; inset: 2.8%; border-radius: 50%; will-change: transform;
+      background: var(--felt), radial-gradient(circle, #1a1a1c 0, #29292c 55%, #1d1d1f 100%);
+      background-blend-mode: overlay, normal;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.5), 0 0 2px rgba(0,0,0,.6);
+    }
+    .strobe-lamp {
+      position: absolute; left: 12.2%; top: 87.8%;
+      width: calc(var(--u) * 5); height: calc(var(--u) * 5);
+      transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none; z-index: 7;
+      background: radial-gradient(circle at 40% 32%, #6a6d72, #2a2b2e 58%, #0e0e0f);
+      box-shadow: 0 1px 3px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.18);
+    }
+    .strobe-lamp::after {
+      content: ''; position: absolute; inset: 30%; border-radius: 50%;
+      background: #3a1610; transition: background .35s ease, box-shadow .35s ease;
+    }
+    .motor-on .strobe-lamp::after {
+      background: #ff6a45;
+      box-shadow: 0 0 calc(var(--u) * 1.6) calc(var(--u) * .6) rgba(255,100,60,.75),
+                  0 0 calc(var(--u) * 5) calc(var(--u) * 2) rgba(255,100,60,.28);
+    }
+
+    /* ── Record ────────────────────────────────── */
+    .vinyl-shadow {
+      position: absolute; inset: 2.2%; border-radius: 50%; pointer-events: none;
+      box-shadow: 0 calc(var(--u) * .5) calc(var(--u) * 1.3) rgba(0,0,0,.65), 0 0 1px rgba(0,0,0,.8);
+    }
     .vinyl {
-      width: 100%; height: 100%;
-      border-radius: 50%; position: relative;
+      position: absolute; inset: 2.2%;
+      border-radius: 50%;
       will-change: transform;
     }
 
     .vinyl-disc {
       position: absolute; inset: 0; border-radius: 50%;
-      background:
-        repeating-radial-gradient(circle, transparent 0, transparent 3px,
-          rgba(0,0,0,.06) 3.5px, transparent 4px),
-        radial-gradient(circle, transparent 30%, #141414 31%, #1e1e1e 60%, #141414 100%);
-      box-shadow: inset 0 0 30px rgba(0,0,0,.5), inset 0 0 80px rgba(0,0,0,.15),
-                  0 2px 10px rgba(0,0,0,.4);
-      transition: background var(--transition), box-shadow var(--transition);
+      background: radial-gradient(circle, #101011 0, #17171a 60%, #0c0c0d 100%);
+      transition: background var(--transition);
     }
+    .disc-canvas { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; }
 
     .vinyl-grooves {
       position: absolute; inset: 0; border-radius: 50%;
-      background: repeating-radial-gradient(circle, transparent 0, transparent 2.5px,
-        rgba(255,255,255,.018) 3px, transparent 3.5px);
-      pointer-events: none;
+      pointer-events: none; opacity: 0;
     }
 
     .vinyl-label {
@@ -157,7 +223,14 @@
       overflow: hidden;
       display: flex; align-items: center; justify-content: center;
       z-index: 2;
+      box-shadow: 0 0 0 1px rgba(0,0,0,.45), 0 0 calc(var(--u) * .8) rgba(0,0,0,.5);
       transition: background var(--transition);
+    }
+    /* paper grain on the label */
+    .vinyl-label::after {
+      content: ''; position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+      background: var(--grain), radial-gradient(circle, transparent 55%, rgba(0,0,0,.16) 100%);
+      mix-blend-mode: multiply; opacity: .34;
     }
 
     .vinyl-label .cover-img {
@@ -168,29 +241,44 @@
     .vinyl-label .no-cover {
       font-size: 10px; color: rgba(255,255,255,.65); text-align: center;
     }
+    .label-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
     .vinyl-spindle {
       position: absolute; top: 50%; left: 50%;
-      width: 8px; height: 8px;
+      width: 2.5%; height: 2.5%; min-width: 6px; min-height: 6px;
       transform: translate(-50%, -50%);
-      border-radius: 50%;
-      background: #444; border: 2px solid #555; z-index: 3;
+      border-radius: 50%; z-index: 5; pointer-events: none;
+      background: radial-gradient(circle at 36% 30%, #fff 0, #dfe1e4 14%, #8d9095 46%, #3b3d41 80%, #1a1b1d);
+      box-shadow: 0 1px 2px rgba(0,0,0,.75), 0 0 0 1px rgba(0,0,0,.5);
     }
 
-    .vinyl-highlight, .vinyl-sheen, .vinyl-iridescent, .vinyl-dust {
-      position: absolute; inset: 0; border-radius: 50%;
+    .vinyl-highlight, .vinyl-sheen, .vinyl-iridescent {
+      position: absolute; inset: 2.2%; border-radius: 50%;
       pointer-events: none; z-index: 4;
     }
-
-    .vinyl-highlight {
-      opacity: .35; mix-blend-mode: screen;
-      transition: opacity var(--transition);
+    .vinyl-dust {
+      position: absolute; inset: 0; border-radius: 50%; pointer-events: none; z-index: 5;
     }
 
+    /* Anisotropic sheen: two wedges that stay put while the record turns under them.
+       color-dodge with grey multiplies what is underneath, so loud grooves glint and the gaps stay dark. */
     .vinyl-sheen {
-      background: radial-gradient(ellipse 70% 50% at 35% 30%,
-        rgba(255,255,255,.1) 0%, transparent 60%);
-      mix-blend-mode: screen; opacity: .6;
+      background: conic-gradient(from calc(var(--light) + 253deg),
+        #000 0deg, #242424 22deg, #9c9c9c 43deg, #c4c4c4 52deg, #9c9c9c 61deg, #242424 82deg, #000 104deg,
+        #000 180deg, #181818 206deg, #747474 225deg, #909090 232deg, #747474 239deg, #181818 258deg, #000 284deg);
+      -webkit-mask: radial-gradient(circle closest-side, transparent 37%, #000 39%, #000 98.6%, transparent 99.8%);
+      mask: radial-gradient(circle closest-side, transparent 37%, #000 39%, #000 98.6%, transparent 99.8%);
+      mix-blend-mode: color-dodge;
+    }
+    /* soft bloom around the same two wedges */
+    .vinyl-highlight {
+      background: conic-gradient(from calc(var(--light) + 253deg),
+        transparent 0deg, rgba(255,255,255,.085) 52deg, transparent 112deg,
+        transparent 176deg, rgba(255,255,255,.05) 232deg, transparent 292deg);
+      -webkit-mask: radial-gradient(circle closest-side, transparent 37%, #000 41%, #000 98%, transparent 100%);
+      mask: radial-gradient(circle closest-side, transparent 37%, #000 41%, #000 98%, transparent 100%);
+      mix-blend-mode: screen;
+      transition: opacity var(--transition);
     }
 
     .vinyl-iridescent {
@@ -203,12 +291,14 @@
     }
 
     .vinyl-dust {
-      opacity: .08; z-index: 5;
+      opacity: calc(var(--wear) * .26);
       background:
         repeating-linear-gradient(37deg, transparent, transparent 5px,
           rgba(255,255,255,.025) 5.5px, transparent 6px),
         repeating-linear-gradient(143deg, transparent, transparent 8px,
           rgba(255,255,255,.015) 8.5px, transparent 9px);
+      -webkit-mask: radial-gradient(circle closest-side, transparent 37%, #000 38%);
+      mask: radial-gradient(circle closest-side, transparent 37%, #000 38%);
     }
 
     .vinyl-glow {
@@ -232,64 +322,153 @@
     }
 
     /* ── Tonearm ───────────────────────────────── */
-    .tonearm {
-      position: absolute; right: 16px; top: -8px;
-      width: 50px; height: calc(var(--vinyl-size) * 0.55);
-      z-index: 10; cursor: grab;
-      transform-origin: top center;
-      transition: height var(--transition);
-      touch-action: none;
-      will-change: transform;
+    /* The box's top-centre is the pivot and its bottom-centre is the stylus tip, so its height is the
+       arm's effective length. JS only ever rotates it. */
+    .tonearm, .tonearm-shadow, .arm-fixed {
+      position: absolute; right: 16px; top: calc(var(--u) * 13.5);
+      width: 50px; height: calc(var(--u) * 74.5);
+      transform-origin: 50% 0;
     }
-    .tonearm.smooth {
-      transition: transform .6s cubic-bezier(0.34, 1.3, 0.64, 1), height var(--transition);
-    }
-    .tonearm.off { transform: rotate(-8deg); }
-    .tonearm.arm-dragging { cursor: grabbing; transition: height var(--transition); }
+    .tonearm { z-index: 10; cursor: grab; touch-action: none; will-change: transform; }
+    .tonearm:not(.arm-dragging), .tonearm-shadow { transition: transform .6s cubic-bezier(0.34, 1.3, 0.64, 1); }
+    .tonearm.arm-dragging { cursor: grabbing; }
+    .arm-fixed { z-index: 8; pointer-events: none; }
 
-    .tonearm-base {
-      position: absolute; top: 0; left: 50%;
-      transform: translateX(-50%);
-      width: 24px; height: 24px; border-radius: 50%;
-      background: radial-gradient(circle, #666 30%, #444);
-      box-shadow: 0 2px 6px rgba(0,0,0,.4);
+    /* fixed base plate under the pivot */
+    .arm-pivot {
+      position: absolute; left: 50%; top: 0;
+      width: calc(var(--u) * 12.5); height: calc(var(--u) * 12.5);
+      transform: translate(-50%, -50%); border-radius: 50%;
+      background:
+        radial-gradient(circle, transparent 58%, rgba(255,255,255,.10) 60%, transparent 63%),
+        radial-gradient(circle at 38% 30%, #4a4c50, #232427 62%, #101011);
+      box-shadow: 0 calc(var(--u) * .5) calc(var(--u) * 1.4) rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.14);
+    }
+    /* arm rest with clip, placed along the arm's parked position */
+    .arm-rest {
+      position: absolute; left: calc(50% + var(--u) * 2.5); top: 71%;
+      width: calc(var(--u) * 6); height: calc(var(--u) * 4.4);
+      transform: translate(-50%, -50%);
+      border-radius: calc(var(--u) * 1.1);
+      background:
+        linear-gradient(90deg, transparent 31%, rgba(0,0,0,.75) 33%, rgba(0,0,0,.5) 50%, rgba(0,0,0,.75) 67%, transparent 69%),
+        linear-gradient(180deg, #505256, #1e1f21);
+      box-shadow: 0 calc(var(--u) * .4) calc(var(--u) * 1) rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.16);
+    }
+
+    /* tube + counterweight share one axis; it is canted 2.8° so the tube meets the angled headshell */
+    .tonearm-tube { position: absolute; left: 50%; top: 0; width: 0; height: 0; transform: rotate(-2.77deg); }
+    .tonearm-weight {
+      position: absolute; left: calc(var(--u) * -3.5); top: calc(var(--u) * -12.4);
+      width: calc(var(--u) * 7); height: calc(var(--u) * 7.6);
+      border-radius: calc(var(--u) * 1);
+      background:
+        repeating-linear-gradient(180deg, rgba(0,0,0,0) 0, rgba(0,0,0,0) 1.5px, rgba(0,0,0,.22) 2px, rgba(0,0,0,0) 2.6px),
+        linear-gradient(90deg, #17181a, #5d6065 22%, #c9ccd1 44%, #7b7e83 60%, #2a2b2e 84%, #121213);
+      box-shadow: 0 1px 2px rgba(0,0,0,.6);
     }
     .tonearm-bar {
-      position: absolute; top: 12px; left: 50%;
-      transform: translateX(-50%);
-      width: 4px; height: calc(100% - 24px);
-      background: linear-gradient(90deg, #777, #aaa 40%, #888);
-      border-radius: 2px;
+      position: absolute; left: calc(var(--u) * -.8); top: calc(var(--u) * -5.2);
+      width: calc(var(--u) * 1.6); height: calc(var(--u) * 72.5);
+      background: linear-gradient(90deg, #5e6165, #f4f5f6 36%, #c1c4c8 54%, #595c60);
+      border-radius: calc(var(--u) * .8);
+      box-shadow: 0 0 1px rgba(0,0,0,.6);
     }
-    .tonearm-head {
-      position: absolute; bottom: -3px; left: 50%;
-      transform: translateX(-50%) rotate(-10deg);
-      width: 12px; height: 18px;
-      background: linear-gradient(180deg, #999, #666);
-      border-radius: 2px 2px 1px 1px;
+    /* bearing housing on top of the pivot */
+    .tonearm-base {
+      position: absolute; top: 0; left: 50%;
+      width: calc(var(--u) * 7.4); height: calc(var(--u) * 7.4);
+      transform: translate(-50%, -50%); border-radius: 50%;
+      background:
+        radial-gradient(circle, #1b1c1e 0, #1b1c1e 16%, transparent 18%),
+        radial-gradient(circle at 36% 30%, #f6f7f8, #b4b7bb 36%, #6a6d72 70%, #37393c);
+      box-shadow: 0 calc(var(--u) * .5) calc(var(--u) * 1.2) rgba(0,0,0,.55), inset 0 0 0 1px rgba(0,0,0,.3);
     }
-    .tonearm-head::after {
-      content: ''; position: absolute; bottom: -3px; left: 50%;
-      transform: translateX(-50%);
-      width: 3px; height: 5px;
-      background: #ccc; border-radius: 0 0 1px 1px;
+    /* headshell frame: origin is the stylus tip, turned 24° so the cartridge sits tangent to the groove */
+    .tonearm-head { position: absolute; left: 50%; bottom: 0; width: 0; height: 0; transform: rotate(24deg); }
+    .tonearm-head i { position: absolute; display: block; }
+    .tonearm-head .shell {
+      left: calc(var(--u) * -2.7); top: calc(var(--u) * -9.2);
+      width: calc(var(--u) * 5.4); height: calc(var(--u) * 10.4);
+      border-radius: calc(var(--u) * 1.3) calc(var(--u) * 1.3) calc(var(--u) * .6) calc(var(--u) * .6);
+      background: linear-gradient(90deg, #6b6e72, #e9eaec 40%, #a9acb0 62%, #56595d);
+      box-shadow: 0 1px 2px rgba(0,0,0,.55);
+    }
+    .tonearm-head .finger {
+      left: calc(var(--u) * 2.2); top: calc(var(--u) * -6.6);
+      width: calc(var(--u) * 5.2); height: calc(var(--u) * 1.1);
+      border-radius: calc(var(--u) * .6);
+      background: linear-gradient(180deg, #f1f2f3, #8b8e92);
+      transform-origin: 0 50%; transform: rotate(-16deg);
+      box-shadow: 0 1px 1px rgba(0,0,0,.5);
+    }
+    .tonearm-head .cart {
+      left: calc(var(--u) * -2); top: calc(var(--u) * -6.4);
+      width: calc(var(--u) * 4); height: calc(var(--u) * 7.2);
+      border-radius: calc(var(--u) * .5);
+      background:
+        linear-gradient(180deg, transparent 72%, var(--accent) 72%),
+        linear-gradient(90deg, #0d0d0e, #3a3b3e 45%, #18181a);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.14);
+    }
+    .tonearm-head .stylus {
+      left: calc(var(--u) * -.55); top: calc(var(--u) * .5);
+      width: calc(var(--u) * 1.1); height: calc(var(--u) * 1.5);
+      border-radius: 40% 40% 50% 50%;
+      background: linear-gradient(180deg, #d7d9dc, #fff);
+      box-shadow: 0 0 calc(var(--u) * .8) rgba(255,255,255,.55);
     }
 
-    /* ── Theme: Wood ───────────────────────────── */
-    .theme-wood .turntable {
-      background: repeating-linear-gradient(92deg, #5a3e28 0, #6b4c33 3px,
-        #5a3e28 5px, #4d3320 8px, #5e422c 11px);
+    /* Shadow copy of the arm. JS moves and blurs it with the arm's height. */
+    .tonearm-shadow { z-index: 9; pointer-events: none; opacity: .5; filter: blur(2px); will-change: transform, filter; }
+    .tonearm-shadow i { position: absolute; display: block; background: #000; border-radius: var(--u); }
+    .tonearm-shadow .tonearm-tube i {
+      left: calc(var(--u) * -1); top: calc(var(--u) * -12);
+      width: calc(var(--u) * 2); height: calc(var(--u) * 79.3);
     }
-    .theme-wood .vinyl-disc {
+    .tonearm-shadow .tonearm-head i {
+      left: calc(var(--u) * -2.9); top: calc(var(--u) * -9.2);
+      width: calc(var(--u) * 5.8); height: calc(var(--u) * 10.8);
+    }
+
+    /* Cue lever: a small damped lever in a slot, front right */
+    .cue-lever {
+      position: absolute; right: calc(var(--u) * 3.2); bottom: calc(var(--u) * 3.6);
+      width: calc(var(--u) * 5); height: calc(var(--u) * 11); min-width: 13px; min-height: 28px;
+      padding: 0; border: 0; border-radius: calc(var(--u) * 1.2); z-index: 8;
+      background: linear-gradient(90deg, #0b0b0c, #1f2022 50%, #0b0b0c);
+      box-shadow: inset 0 1px 3px rgba(0,0,0,.8), 0 1px 0 rgba(255,255,255,.10);
+    }
+    .cue-lever:active { transform: none; }
+    .cue-lever i {
+      position: absolute; left: 12%; right: 12%; bottom: 8%; height: 36%;
+      border-radius: calc(var(--u) * .9);
       background:
-        repeating-radial-gradient(circle, transparent 0, transparent 3px,
-          rgba(0,0,0,.09) 3.5px, transparent 4px),
-        radial-gradient(circle, transparent 30%, #0d0d0d 31%, #181818 60%, #0d0d0d 100%);
+        repeating-linear-gradient(180deg, rgba(0,0,0,0) 0, rgba(0,0,0,0) 1.5px, rgba(0,0,0,.3) 2px, rgba(0,0,0,0) 2.6px),
+        linear-gradient(90deg, #6d7074, #f0f1f2 45%, #74777b);
+      box-shadow: 0 1px 2px rgba(0,0,0,.7);
+      transition: bottom .45s cubic-bezier(.2, .9, .3, 1);   /* silicone-damped */
     }
+    .cue-lever.up i { bottom: 56%; }
+
+    /* ── Theme: Wood (walnut veneer) ───────────── */
+    .theme-wood .turntable {
+      background:
+        linear-gradient(155deg, rgba(255,236,200,.13), rgba(255,255,255,0) 40%, rgba(0,0,0,.26)),
+        var(--pores),
+        var(--walnut) center / cover,
+        #4d3320;
+      background-blend-mode: normal, soft-light, normal, normal;
+      box-shadow: var(--shadow), 0 2px 3px rgba(0,0,0,.5),
+        inset 0 1px 0 rgba(255,225,180,.20), inset 0 -3px 0 rgba(20,10,4,.45), inset 0 0 0 1px rgba(30,16,8,.5);
+    }
+    .theme-wood .vinyl-disc { background: radial-gradient(circle, #0b0b0c 0, #121214 60%, #080809 100%); }
+    .theme-wood .arm-pivot, .theme-wood .cue-lever { box-shadow: 0 calc(var(--u) * .5) calc(var(--u) * 1.4) rgba(20,10,4,.6), inset 0 1px 0 rgba(255,255,255,.14); }
 
     /* ── Theme: Clear (Liquid Glass Edition) ───── */
     .theme-clear .turntable {
       background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.01));
+      background-blend-mode: normal;
       box-shadow:
         0 16px 40px rgba(0,0,0,0.3),
         inset 0 1px 1px rgba(255,255,255,0.3),
@@ -300,27 +479,42 @@
       border: 1px solid rgba(255,255,255,0.15);
       border-radius: 24px;
     }
+    .theme-clear .turntable::before, .theme-clear .turntable::after {
+      background: linear-gradient(180deg, rgba(255,255,255,.25), rgba(255,255,255,.06));
+      box-shadow: 0 2px 4px rgba(0,0,0,.25);
+    }
+    /* acrylic platter, no mat */
+    .theme-clear .platter {
+      background:
+        radial-gradient(circle closest-side, transparent 97.6%, rgba(255,255,255,.5) 98.8%, rgba(255,255,255,.12) 100%),
+        radial-gradient(circle closest-side, rgba(255,255,255,.012) 0, rgba(255,255,255,.03) 80%, rgba(255,255,255,.07) 96%);
+      box-shadow: 0 calc(var(--u) * 1.4) calc(var(--u) * 3.6) rgba(0,0,0,.28), inset 0 0 0 1px rgba(255,255,255,.22);
+    }
+    .theme-clear .platter-strobe {
+      background: repeating-conic-gradient(rgba(255,255,255,.85) 0deg, rgba(255,255,255,.85) .85deg, rgba(255,255,255,.08) .95deg, rgba(255,255,255,.08) 1.9deg, rgba(255,255,255,.85) 2deg);
+    }
+    .theme-clear .slipmat { display: none; }
+    .theme-clear .vinyl-shadow { box-shadow: 0 12px 40px rgba(0,0,0,0.25); }
+    .theme-clear .vinyl-wrap::before {
+      content: ''; position: absolute; inset: 2.2%; border-radius: 50%; pointer-events: none; z-index: 8;
+      background: linear-gradient(135deg, rgba(255,255,255,0.13) 0%, rgba(255,255,255,0.015) 40%, rgba(0,0,0,0.1) 100%);
+      -webkit-mask: radial-gradient(circle closest-side, transparent 37.6%, #000 38.2%);
+      mask: radial-gradient(circle closest-side, transparent 37.6%, #000 38.2%);
+      box-shadow:
+        inset 0 0 0 1px rgba(255,255,255,0.2),
+        inset 0 4px 15px rgba(255,255,255,0.4),
+        inset 0 -4px 15px rgba(0,0,0,0.2);
+    }
     .theme-clear .vinyl-disc {
       background:
         radial-gradient(circle, transparent 27%, rgba(255,255,255,0.15) 29.5%, rgba(255,255,255,0.08) 32%, rgba(255,255,255,0.02) 36%, transparent 42%),
         radial-gradient(circle, transparent 40%, rgba(255,255,255,0.03) 55%, rgba(255,255,255,0.05) 65%, rgba(255,255,255,0.01) 78%, transparent 88%),
-        linear-gradient(135deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.02) 40%, rgba(0,0,0,0.1) 100%);
-      box-shadow:
-        inset 0 0 0 1px rgba(255,255,255,0.2),
-        inset 0 4px 15px rgba(255,255,255,0.4),
-        inset 0 -4px 15px rgba(0,0,0,0.2),
-        0 12px 40px rgba(0,0,0,0.25);
+        radial-gradient(circle, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
       backdrop-filter: blur(24px) saturate(180%);
       -webkit-backdrop-filter: blur(24px) saturate(180%);
       border: none;
     }
-    .theme-clear .vinyl-disc::before {
-      content: ''; position: absolute; inset: 0; border-radius: 50%;
-      background: conic-gradient(from 25deg, transparent 0deg, rgba(255,255,255,0.035) 12deg, rgba(255,255,255,0.1) 32deg, rgba(255,255,255,0.035) 52deg, transparent 72deg, transparent 155deg, rgba(255,255,255,0.015) 170deg, rgba(255,255,255,0.055) 190deg, rgba(255,255,255,0.015) 210deg, transparent 230deg, transparent 360deg);
-      -webkit-mask: radial-gradient(circle, transparent 29%, black 34%, black 92%, transparent 97%);
-      mask: radial-gradient(circle, transparent 29%, black 34%, black 92%, transparent 97%);
-      pointer-events: none; z-index: 1; opacity: 0.85;
-    }
+    /* accent tint in the rim of the translucent record (turns with it; rotationally near-symmetric) */
     .theme-clear .vinyl-disc::after {
       content: ''; position: absolute; inset: 0; border-radius: 50%;
       background:
@@ -330,18 +524,20 @@
       mask: radial-gradient(circle, transparent 82%, black 87%, black 100%);
       pointer-events: none; z-index: 2;
     }
-    .theme-clear .vinyl-grooves {
-      background: repeating-radial-gradient(circle, transparent 0, transparent 3.2px, rgba(255,255,255,0.006) 3.5px, transparent 3.8px);
-      opacity: 0.3;
-      -webkit-mask: radial-gradient(circle, transparent 30%, black 34%, black 91%, transparent 96%);
-      mask: radial-gradient(circle, transparent 30%, black 34%, black 91%, transparent 96%);
-    }
-    .theme-clear .vinyl-highlight { opacity: 0.5; mix-blend-mode: overlay; z-index: 6; }
+    /* world-fixed light on glass */
     .theme-clear .vinyl-sheen {
+      background:
+        conic-gradient(from calc(var(--light) + 25deg), transparent 0deg, rgba(255,255,255,0.05) 12deg, rgba(255,255,255,0.16) 32deg, rgba(255,255,255,0.05) 52deg, transparent 72deg, transparent 155deg, rgba(255,255,255,0.02) 170deg, rgba(255,255,255,0.09) 190deg, rgba(255,255,255,0.02) 210deg, transparent 230deg, transparent 360deg);
+      -webkit-mask: radial-gradient(circle closest-side, transparent 37%, #000 40%, #000 96%, transparent 100%);
+      mask: radial-gradient(circle closest-side, transparent 37%, #000 40%, #000 96%, transparent 100%);
+      mix-blend-mode: screen; opacity: 1; z-index: 7;
+    }
+    .theme-clear .vinyl-highlight {
       background:
         radial-gradient(ellipse 50% 40% at 30% 20%, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.08) 45%, transparent 70%),
         radial-gradient(ellipse 25% 20% at 75% 75%, rgba(255,255,255,0.1) 0%, transparent 65%);
-      mix-blend-mode: screen; opacity: 1; z-index: 7;
+      -webkit-mask: none; mask: none;
+      opacity: 0.5; mix-blend-mode: overlay; z-index: 6;
     }
     .theme-clear .vinyl-iridescent {
       background: conic-gradient(from 90deg, rgba(255,120,120,0.02), rgba(255,230,100,0.02), rgba(120,255,150,0.02), rgba(100,210,255,0.03), rgba(210,130,255,0.02), rgba(255,120,120,0.02));
@@ -349,7 +545,7 @@
       mask: radial-gradient(circle, transparent 42%, black 48%, black 88%, transparent 94%);
       mix-blend-mode: screen; opacity: 0.45;
     }
-    .theme-clear .vinyl-dust { opacity: 0; }
+    .theme-clear .vinyl-dust { opacity: calc(var(--wear) * .12); }
     .theme-clear .vinyl-glow {
       inset: -12px; border: 1px solid rgba(255,255,255,0.1);
       box-shadow: 0 0 50px rgba(255,255,255,0.05), inset 0 0 20px rgba(255,255,255,0.05);
@@ -372,16 +568,23 @@
       box-shadow: 0 0 0 1px rgba(255,255,255,0.14), inset 0 1.5px 4px rgba(255,255,255,0.1), inset 0 -1px 3px rgba(0,0,0,0.06), 0 2px 10px rgba(0,0,0,0.1);
     }
     .theme-clear .vinyl-spindle {
-      background: radial-gradient(circle at 35% 35%, #c0c0c0, #707070);
-      border-color: rgba(255,255,255,0.3); box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+      background: radial-gradient(circle at 35% 35%, #fff, #c0c0c0 30%, #707070);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 1px rgba(255,255,255,.3);
+    }
+    .theme-clear .arm-pivot, .theme-clear .arm-rest, .theme-clear .cue-lever, .theme-clear .strobe-lamp {
+      background: radial-gradient(circle at 40% 35%, rgba(255,255,255,0.5), rgba(255,255,255,0.12));
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2), inset 0 1px 2px rgba(255,255,255,0.5);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
     }
     .theme-clear .tonearm-base {
-      background: radial-gradient(circle at 40% 35%, rgba(255,255,255,0.8), rgba(255,255,255,0.2));
+      background: radial-gradient(circle at 40% 35%, rgba(255,255,255,0.9), rgba(255,255,255,0.3));
       box-shadow: 0 4px 12px rgba(0,0,0,0.2), inset 0 1px 2px rgba(255,255,255,0.5);
-      backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
     }
-    .theme-clear .tonearm-bar { background: linear-gradient(90deg, rgba(255,255,255,0.5), rgba(255,255,255,0.9) 45%, rgba(255,255,255,0.4)); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .theme-clear .tonearm-head { background: linear-gradient(180deg, rgba(255,255,255,0.8), rgba(255,255,255,0.3)); backdrop-filter: blur(10px); box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
+    .theme-clear .tonearm-bar { background: linear-gradient(90deg, rgba(255,255,255,0.5), rgba(255,255,255,0.95) 45%, rgba(255,255,255,0.4)); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .theme-clear .tonearm-weight { background: linear-gradient(90deg, rgba(255,255,255,.25), rgba(255,255,255,.75) 44%, rgba(255,255,255,.2)); box-shadow: 0 2px 6px rgba(0,0,0,.15), inset 0 0 0 1px rgba(255,255,255,.3); }
+    .theme-clear .tonearm-head .shell { background: linear-gradient(180deg, rgba(255,255,255,0.85), rgba(255,255,255,0.35)); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
+    .theme-clear .tonearm-shadow { opacity: .22; }
 
     /* ── Controls ──────────────────────────────── */
     .row {
@@ -393,15 +596,66 @@
       font-family: inherit; font-size: 12px;
       padding: 6px 12px;
       border: 1px solid var(--border); border-radius: 6px;
-      background: var(--surface); color: var(--text);
+      /* moulded key: lit from above, seated in the panel */
+      background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,0) 46%, rgba(0,0,0,.13)), var(--surface);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.09), 0 1px 1.5px rgba(0,0,0,.32);
+      color: var(--text);
       cursor: pointer;
-      transition: background var(--transition), border-color var(--transition),
-                  color var(--transition), transform 0.1s ease;
+      transition: background-color var(--transition), border-color var(--transition),
+                  color var(--transition), transform 0.1s ease, box-shadow .1s ease;
     }
     button:hover, select:hover, .about-toggle:hover { border-color: var(--accent); }
     button:disabled { opacity: .35; cursor: not-allowed; }
-    button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button.on {
+      background: linear-gradient(180deg, rgba(255,255,255,.2), rgba(255,255,255,0) 50%, rgba(0,0,0,.14)), var(--accent);
+      color: #fff; border-color: var(--accent);
+    }
     button:active, select:active, .about-toggle:active { transform: scale(0.95); }
+    button:active:not(:disabled) { box-shadow: inset 0 2px 4px rgba(0,0,0,.45); }
+
+    /* Motor button with LED */
+    .motor-btn { display: inline-flex; align-items: center; gap: 6px; }
+    .motor-btn .led {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: hsl(var(--accent-h), 45%, 16%);
+      box-shadow: inset 0 1px 1px rgba(0,0,0,.6);
+      transition: background .2s ease, box-shadow .2s ease;
+    }
+    .motor-btn[aria-pressed="true"] .led {
+      background: var(--accent);
+      box-shadow: 0 0 5px 1px hsla(var(--accent-h), var(--accent-s), var(--accent-l), .9),
+                  0 0 12px 3px hsla(var(--accent-h), var(--accent-s), var(--accent-l), .35);
+    }
+
+    /* Detented speed switch: three positions in a recessed slot */
+    .rpm-switch {
+      display: inline-flex; gap: 2px; padding: 2px;
+      border: 1px solid var(--border); border-radius: 6px;
+      background: rgba(0,0,0,.22);
+      box-shadow: inset 0 1px 3px rgba(0,0,0,.5), 0 1px 0 rgba(255,255,255,.06);
+    }
+    .rpm-switch button {
+      padding: 3px 8px; min-width: 30px; border-radius: 4px; font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+    .rpm-switch button[aria-pressed="false"] {
+      background: transparent; box-shadow: none; border-color: transparent; color: var(--text-dim);
+    }
+    .rpm-switch button[aria-pressed="true"] { box-shadow: inset 0 1px 0 rgba(255,255,255,.12), inset 0 -2px 0 var(--accent), 0 1px 2px rgba(0,0,0,.4); }
+    select.mini { font-size: 11px; line-height: 1.25; padding: 0 6px; }
+
+    /* Themed controls */
+    .theme-wood .motor-btn, .theme-wood .rpm-switch, .theme-wood select.mini { border-color: rgba(196,146,96,.4); }
+    .theme-clear .motor-btn, .theme-clear .rpm-switch, .theme-clear select.mini {
+      background: linear-gradient(135deg, rgba(255,255,255,.14), rgba(255,255,255,.03));
+      border-color: rgba(255,255,255,.2);
+      backdrop-filter: blur(12px) saturate(160%); -webkit-backdrop-filter: blur(12px) saturate(160%);
+    }
+
+    /* Deck settings body */
+    .deck-grid { display: flex; flex-wrap: wrap; gap: 12px 22px; align-items: center; }
+    .deck-grid .val { min-width: 30px; font-variant-numeric: tabular-nums; }
+    .deck-grid button { padding: 3px 9px; margin-left: 6px; }
     button:focus-visible, select:focus-visible, input:focus-visible {
       outline: 2px solid var(--accent); outline-offset: 2px;
     }
@@ -418,23 +672,41 @@
     }
     .eq-flash { animation: eq-pulse .3s ease; }
 
+    /* Faders: recessed slot, knurled metal cap with an accent index line */
     input[type="range"] {
       -webkit-appearance: none; appearance: none;
       width: 64px; height: 4px; border-radius: 2px;
-      background: var(--border); outline: none; cursor: pointer;
+      background: linear-gradient(180deg, rgba(0,0,0,.5), rgba(0,0,0,.12)), var(--border);
+      box-shadow: inset 0 1px 1px rgba(0,0,0,.45), 0 1px 0 rgba(255,255,255,.07);
+      outline: none; cursor: pointer;
+    }
+    input[type="range"].pitch {
+      background:
+        linear-gradient(90deg, transparent calc(50% - 1px), var(--text-dim) calc(50% - 1px), var(--text-dim) calc(50% + 1px), transparent calc(50% + 1px)),
+        linear-gradient(180deg, rgba(0,0,0,.5), rgba(0,0,0,.12)), var(--border);
     }
     input[type="range"]::-webkit-slider-thumb {
-      -webkit-appearance: none; width: 12px; height: 12px;
-      border-radius: 50%; background: var(--accent);
+      -webkit-appearance: none; width: 10px; height: 16px;
+      border-radius: 2.5px;
+      background:
+        linear-gradient(90deg, transparent 4px, var(--accent) 4px, var(--accent) 6px, transparent 6px),
+        repeating-linear-gradient(180deg, rgba(0,0,0,0) 0, rgba(0,0,0,0) 1px, rgba(0,0,0,.28) 1px, rgba(0,0,0,.28) 2px),
+        linear-gradient(180deg, #f4f5f6, #a5a8ad 55%, #6c6f74);
+      box-shadow: 0 1px 3px rgba(0,0,0,.6), inset 0 0 0 .5px rgba(0,0,0,.35);
       transition: transform 0.1s ease;
     }
-    input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.2); }
+    input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.12); }
     input[type="range"]::-moz-range-thumb {
-      width: 12px; height: 12px; border: none;
-      border-radius: 50%; background: var(--accent);
+      width: 10px; height: 16px; border: none;
+      border-radius: 2.5px;
+      background:
+        linear-gradient(90deg, transparent 4px, var(--accent) 4px, var(--accent) 6px, transparent 6px),
+        repeating-linear-gradient(180deg, rgba(0,0,0,0) 0, rgba(0,0,0,0) 1px, rgba(0,0,0,.28) 1px, rgba(0,0,0,.28) 2px),
+        linear-gradient(180deg, #f4f5f6, #a5a8ad 55%, #6c6f74);
+      box-shadow: 0 1px 3px rgba(0,0,0,.6);
       transition: transform 0.1s ease;
     }
-    input[type="range"]::-moz-range-thumb:active { transform: scale(1.2); }
+    input[type="range"]::-moz-range-thumb:active { transform: scale(1.12); }
 
     input[type="color"] {
       -webkit-appearance: none; appearance: none;
@@ -696,7 +968,7 @@
     }
     @media (hover: none) and (pointer: coarse) {
       .lift-arm-row { display: flex; }
-      .tonearm { width: 60px; }
+      .tonearm, .tonearm-shadow, .arm-fixed { width: 60px; }
     }
 
     /* ── Responsive ────────────────────────────── */
@@ -712,9 +984,15 @@
         width: calc(var(--vinyl-size) + 60px);
         height: calc(var(--vinyl-size) + 40px);
       }
-      .tonearm { right: 6px; }
+      .tonearm, .tonearm-shadow, .arm-fixed { right: 6px; }
       .fc-seek { width: 80px; }
       .focus-controls { padding: 8px 18px; gap: 12px; border-radius: 40px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .turntable.bump, .drop-icon { animation: none; }
+      .vinyl-wrap, .vinyl-wrap:hover, .vinyl-wrap.dragging { transform: none; transition: none; }
+      button:active, select:active, .about-toggle:active, label:active, .tracklist li:active { transform: none; }
     }
 
     @media print {
@@ -744,27 +1022,44 @@
 
     <div class="turntable" id="turntable">
       <div class="vinyl-wrap" id="vinylWrap">
+        <!-- Fixed in the world: platter body. Turns with the motor: strobe ring and slipmat. -->
+        <div class="platter" aria-hidden="true">
+          <div class="platter-strobe" id="strobe"></div>
+          <div class="slipmat" id="slipmat"></div>
+        </div>
+        <div class="vinyl-shadow" aria-hidden="true"></div>
+        <!-- Turns with the record: face, label, dust, scratches. -->
         <div class="vinyl" id="vinyl">
-          <div class="vinyl-disc"></div>
+          <div class="vinyl-disc"><canvas class="disc-canvas" id="discCanvas" aria-hidden="true"></canvas></div>
           <div class="vinyl-grooves"></div>
           <div class="vinyl-label">
             <img class="cover-img" id="coverImg" alt="Album cover art">
             <span class="no-cover" id="noCover">No Cover</span>
+            <canvas class="label-canvas" id="labelCanvas" aria-hidden="true"></canvas>
           </div>
-          <div class="vinyl-spindle"></div>
-          <div class="vinyl-highlight" id="highlight"></div>
-          <div class="vinyl-sheen"></div>
-          <div class="vinyl-iridescent"></div>
           <div class="vinyl-dust"></div>
         </div>
+        <!-- Fixed in the world: light on the record, spindle. -->
+        <div class="vinyl-sheen"></div>
+        <div class="vinyl-highlight" id="highlight"></div>
+        <div class="vinyl-iridescent"></div>
+        <div class="vinyl-spindle"></div>
         <canvas class="bass-canvas" id="bassCanvas" width="400" height="400"></canvas>
         <div class="vinyl-glow"></div>
+        <div class="strobe-lamp" id="strobeLamp" aria-hidden="true"></div>
       </div>
-      <div class="tonearm off smooth" id="tonearm" role="slider" aria-label="Tonearm" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div class="arm-fixed" aria-hidden="true"><div class="arm-pivot"></div></div>
+      <div class="arm-fixed arm-restbox" id="armRestBox" aria-hidden="true"><div class="arm-rest"></div></div>
+      <div class="tonearm-shadow" id="armShadow" aria-hidden="true"><div class="tonearm-tube"><i></i></div><div class="tonearm-head"><i></i></div></div>
+      <div class="tonearm off" id="tonearm" role="slider" aria-label="Tonearm" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="tonearm-tube">
+          <div class="tonearm-weight"></div>
+          <div class="tonearm-bar"></div>
+        </div>
         <div class="tonearm-base"></div>
-        <div class="tonearm-bar"></div>
-        <div class="tonearm-head"></div>
+        <div class="tonearm-head"><i class="shell"></i><i class="finger"></i><i class="cart"></i><i class="stylus"></i></div>
       </div>
+      <button class="cue-lever" id="cueLever" aria-label="Cue lever: lift or lower the tonearm" title="Cue lever"><i></i></button>
     </div>
 
     <!-- Lift Arm (touch devices) -->
@@ -779,12 +1074,18 @@
     </div>
 
     <div class="row">
+      <button id="motorBtn" class="motor-btn" aria-pressed="false" aria-label="Motor power" title="Motor"><i class="led"></i>⏻</button>
       <button id="prevBtn" disabled aria-label="Previous track">⏮</button>
       <button id="playBtn" disabled aria-label="Play">▶ Play</button>
       <button id="nextBtn" disabled aria-label="Next track">⏭</button>
       <button id="shuffleBtn" aria-label="Toggle shuffle" title="Shuffle">🔀</button>
       <button id="repeatBtn" aria-label="Cycle repeat mode" title="Repeat: Off">🔁</button>
-      <select id="rpmSel" aria-label="RPM speed">
+      <div class="rpm-switch" id="rpmSwitch" role="group" aria-label="RPM speed">
+        <button type="button" data-rpm="33" aria-pressed="true" title="33⅓ RPM">33⅓</button>
+        <button type="button" data-rpm="45" aria-pressed="false" title="45 RPM">45</button>
+        <button type="button" data-rpm="78" aria-pressed="false" title="78 RPM">78</button>
+      </div>
+      <select id="rpmSel" hidden aria-hidden="true" tabindex="-1">
         <option value="33">33⅓ RPM</option>
         <option value="45">45 RPM</option>
         <option value="78">78 RPM</option>
@@ -831,7 +1132,14 @@
       <div class="group"><span id="bassLabel">Bass</span><input type="range" id="bassSlider" min="-12" max="12" step="1" value="0" aria-label="Bass EQ"></div>
       <div class="group"><span id="midLabel">Mid</span><input type="range" id="midSlider" min="-12" max="12" step="1" value="0" aria-label="Mid EQ"></div>
       <div class="group"><span id="trebleLabel">Treble</span><input type="range" id="trebleSlider" min="-12" max="12" step="1" value="0" aria-label="Treble EQ"></div>
-      <div class="group"><span>Vinyl noise</span><input type="range" id="noiseSlider" min="0" max="1" step=".01" value="0" aria-label="Vinyl noise level"></div>
+      <div class="group"><span>Vinyl noise</span><input type="range" id="noiseSlider" min="0" max="1" step=".01" value=".3" aria-label="Vinyl noise level"></div>
+      <div class="group"><span id="pitchLabel">Pitch</span><input type="range" class="pitch" id="pitchSlider" min="-8" max="8" step=".1" value="0" aria-label="Pitch, plus or minus 8 percent" title="Pitch ±8% (double-click to reset)"></div>
+      <div class="group"><select id="condSel" class="mini" aria-label="Record condition" title="Record condition">
+        <option value="mint">Mint</option>
+        <option value="good" selected>Good</option>
+        <option value="worn">Worn</option>
+        <option value="beat">Beat-up</option>
+      </select></div>
     </div>
 
     <div class="about-wrap" id="aboutWrap">
@@ -855,6 +1163,21 @@
             <div class="sleeve-line"><span class="sleeve-label">Genre</span><span class="sleeve-val editable" id="aboutGenre" contenteditable="true" spellcheck="false">—</span></div>
             <div class="sleeve-notes editable" id="albumNotes" contenteditable="true" spellcheck="false">Click to add your own liner notes. Good records deserve good stories.</div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="about-wrap" id="deckWrap">
+      <button class="about-toggle" id="deckToggle" aria-expanded="false" aria-controls="deckBody">
+        <span>Deck settings</span><span class="arrow">▼</span>
+      </button>
+      <div class="about-body" id="deckBody">
+        <div class="deck-grid">
+          <div class="group"><span id="impLabel">Imperfection</span><input type="range" id="impSlider" min="0" max="1" step=".01" value=".5" aria-label="Imperfection: wow, flutter and wobble amount"><span class="val" id="impVal">50%</span></div>
+          <div class="group"><label><input type="checkbox" id="keepSpinChk"> Keep platter spinning when paused</label></div>
+          <div class="group"><label><input type="checkbox" id="autoReturnChk" checked> Auto-return at the end</label></div>
+          <div class="group"><label><input type="checkbox" id="sidesChk"> Record sides (about 22 min each)</label><button id="flipBtn" disabled aria-label="Flip the record">⟲ Flip</button></div>
+          <div class="group"><label><input type="checkbox" id="sizeChk"> Record size follows speed (12″ / 7″ / 10″)</label></div>
         </div>
       </div>
     </div>
@@ -883,8 +1206,24 @@
   (() => {
     'use strict';
 
-    // ─── CONSTANTS ───────────────────────────────────────────────
+    // ─── TUNABLE CONSTANTS ───────────────────────────────────────
+    // Everything physical about the deck is set here.
     const C = Object.freeze({
+      // Record, real-world millimetres (12-inch LP)
+      REC_D_MM: 302,          // record diameter
+      LEADIN_MM: 149.5,       // radius where the lead-in groove starts
+      GROOVE_OUT_MM: 146,     // radius of the first music groove
+      GROOVE_IN_MM: 60.5,     // radius of the last music groove
+      LOCKED_MM: 57,          // radius of the locked groove
+      GAP_MM: 2.6,            // width of the silent band between two tracks (about double life size, to read on screen)
+      GAP_MAX_SHARE: 0.15,    // gaps never take more than this share of the groove area
+      LABEL_FRAC: 0.36,       // label diameter / record diameter (as in the original)
+      SPINDLE_FRAC: 0.024,    // spindle diameter / record diameter
+      DEFAULT_DUR: 180,       // seconds assumed for a track whose length is not known yet
+
+      // Tonearm geometry (pivot position and arm length are CSS: .tonearm top / height)
+      ARM_REST_CLEAR: 3.6,    // gap between the parked arm tube and the platter edge, in % of the platter
+
       /** Visual rotation speed at 33⅓ RPM (degrees per frame) */
       VINYL_SPEED_33: 1.8,
       /** Friction multiplier when decelerating */
@@ -960,7 +1299,10 @@
         'audio','bassCanvas','dropOverlay','ariaLive','liftArmBtn',
         'focusControls','fcPrev','fcPlay','fcNext','fcTime','fcDur',
         'fcSeek','fcSeekFill','fcExit',
-        'bassLabel','midLabel','trebleLabel','volLabel'
+        'bassLabel','midLabel','trebleLabel','volLabel',
+        'discCanvas','labelCanvas','strobe','slipmat','armShadow','armRestBox','cueLever','strobeLamp',
+        'motorBtn','rpmSwitch','pitchSlider','pitchLabel','condSel',
+        'deckWrap','deckToggle','deckBody','impSlider','impVal','keepSpinChk','autoReturnChk','sidesChk','sizeChk','flipBtn'
       ];
       ids.forEach(id => { DOM[id] = $(id); });
     }
@@ -1018,6 +1360,8 @@
       db: null,
       idCounter: Date.now(),
       dragCounter: 0,
+      lastArmKey: '',
+      accentHSL: ['14', '80%', '54%'],
     };
 
     // ─── UTILS ───────────────────────────────────────────────────
@@ -1086,13 +1430,13 @@
 
       getArmPivot: () => {
         const tr = DOM.turntable.getBoundingClientRect();
-        const isMobile = window.innerWidth <= 480;
-        return { x: tr.right - (isMobile ? 6 : 16) - 25, y: tr.top + (-8) };
+        const k = tr.width / DOM.turntable.offsetWidth;      // the box may be mid "bump" scale
+        return { x: tr.left + Geo.P.x * k, y: tr.top + Geo.P.y * k };
       },
 
       readArmAngle: () => {
         const m = DOM.tonearm.style.transform.match(/rotate\(([-\d.]+)deg\)/);
-        return m ? parseFloat(m[1]) : C.NEEDLE_OFF;
+        return m ? parseFloat(m[1]) : Geo.thRest;
       },
 
       announce: text => {
@@ -1249,6 +1593,272 @@
         const genreIdx = view.getUint8(off + 127);
         if (!result.genre && genreIdx < C.GENRES.length) result.genre = C.GENRES[genreIdx];
       }
+    };
+
+    // ─── GEOMETRY ────────────────────────────────────────────────
+    // Tonearm as a real pivoted arm. P = pivot, S = spindle, D = |PS|, L = pivot-to-stylus length.
+    // All in turntable-box pixels, read from layout (offset*), which transforms do not disturb.
+    const Geo = {
+      S: { x: 0, y: 0 }, P: { x: 0, y: 0 }, D: 1, L: 1, R: 1, thS: 0, thRest: 0,
+
+      update() {
+        const w = DOM.vinylWrap, a = DOM.tonearm;
+        Geo.S = { x: w.offsetLeft + w.offsetWidth / 2, y: w.offsetTop + w.offsetHeight / 2 };
+        Geo.P = { x: a.offsetLeft + a.offsetWidth / 2, y: a.offsetTop };
+        Geo.L = a.offsetHeight;
+        Geo.R = DOM.vinyl.offsetWidth / 2;                       // record radius
+        const dx = Geo.S.x - Geo.P.x, dy = Geo.S.y - Geo.P.y;
+        Geo.D = Math.hypot(dx, dy);
+        Geo.thS = Math.atan2(-dx, dy) * 180 / Math.PI;           // CSS rotation that would aim the arm at the spindle
+        // Parked: the arm line passes the platter edge with a fixed clearance.
+        const clear = (w.offsetWidth / 2 + C.ARM_REST_CLEAR / 100 * w.offsetWidth) / Geo.D;
+        Geo.thRest = Geo.thS - Math.asin(Math.min(1, clear)) * 180 / Math.PI;
+        DOM.armRestBox.style.transform = `rotate(${Geo.thRest}deg)`;
+      },
+
+      /** Arm rotation (deg) that puts the stylus at radius rn (in record radii). Law of cosines. */
+      angleFor(rn) {
+        const r = rn * Geo.R, { D, L } = Geo;
+        const c = Utils.clamp((D * D + L * L - r * r) / (2 * D * L), -1, 1);
+        return Geo.thS - Math.acos(c) * 180 / Math.PI;
+      },
+
+      /** Stylus radius (record radii) for an arm rotation. */
+      radiusFor(th) {
+        const b = (Geo.thS - th) * Math.PI / 180, { D, L } = Geo;
+        return Math.sqrt(Math.max(0, D * D + L * L - 2 * D * L * Math.cos(b))) / Geo.R;
+      },
+
+      /** Where the stylus sits around the spindle (deg, clockwise from 3 o'clock), for an arm rotation. */
+      stylusPhi(th) {
+        const t = th * Math.PI / 180;
+        const x = Geo.P.x - Geo.L * Math.sin(t) - Geo.S.x, y = Geo.P.y + Geo.L * Math.cos(t) - Geo.S.y;
+        return Math.atan2(y, x) * 180 / Math.PI;
+      }
+    };
+
+    // ─── PROGRAM: tracks ↔ groove radius ─────────────────────────
+    // The record carries the whole playlist. Radii are in record radii (1 = edge).
+    const N = Object.freeze({
+      LEADIN: C.LEADIN_MM / (C.REC_D_MM / 2),
+      OUT: C.GROOVE_OUT_MM / (C.REC_D_MM / 2),
+      IN: C.GROOVE_IN_MM / (C.REC_D_MM / 2),
+      LOCKED: C.LOCKED_MM / (C.REC_D_MM / 2),
+    });
+
+    const Program = {
+      bands: [],   // per track: { r0 (outer), r1 (inner), dur }
+
+      build() {
+        const tracks = State.playlist, n = tracks.length;
+        const span = N.OUT - N.IN;
+        const gap = n > 1 ? Math.min(C.GAP_MM / (C.REC_D_MM / 2), span * C.GAP_MAX_SHARE / (n - 1)) : 0;
+        const durs = tracks.map(t => t.duration > 0 ? t.duration : C.DEFAULT_DUR);
+        const total = durs.reduce((a, b) => a + b, 0) || 1;
+        const usable = span - gap * (n - 1);
+        let r = N.OUT;
+        Program.bands = durs.map(dur => {
+          const b = { r0: r, r1: r - usable * dur / total, dur };
+          r = b.r1 - gap;
+          return b;
+        });
+      },
+
+      /** Radius of time t in track idx. */
+      radius(idx, t) {
+        const b = Program.bands[idx];
+        if (!b) return N.OUT;
+        return b.r0 + (b.r1 - b.r0) * Utils.clamp(t / b.dur, 0, 1);
+      },
+
+      /** What lies under radius rn: off the record, lead-in, a track (with time), a gap, or the run-out. */
+      locate(rn) {
+        const bands = Program.bands;
+        if (rn > 1 || !bands.length) return { kind: 'off' };
+        if (rn > N.OUT) return { kind: 'leadin', idx: 0, t: 0 };
+        for (let i = 0; i < bands.length; i++) {
+          const b = bands[i];
+          if (rn > b.r0) return { kind: 'gap', idx: i, t: 0 };            // gap before track i → its start
+          if (rn >= b.r1) return { kind: 'track', idx: i, t: (b.r0 - rn) / (b.r0 - b.r1) * b.dur };
+        }
+        return { kind: 'runout' };
+      }
+    };
+
+    // ─── RENDER: record face and label (drawn once, then spun by CSS) ──
+    const Render = {
+      timer: 0,
+      dpr: () => Math.min(2, window.devicePixelRatio || 1),
+
+      /** Coalesce redraws; only theme, size and track-list changes get here. */
+      schedule() { clearTimeout(Render.timer); Render.timer = setTimeout(Render.all, 80); },
+
+      all() {
+        Geo.update();
+        Program.build();
+        Render.disc();
+        Render.label();
+        State.lastArmKey = '';
+        UI.updateNeedle();
+      },
+
+      /** Small seeded PRNG (mulberry32) so a record always looks the same. */
+      rng(seed) {
+        let a = seed >>> 0;
+        return () => {
+          a = (a + 0x6D2B79F5) >>> 0;
+          let t = Math.imul(a ^ (a >>> 15), 1 | a);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      },
+
+      hash(str) {
+        let h = 2166136261;
+        for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+        return h >>> 0;
+      },
+
+      /** Loudness 0..1 at fraction f of a track: measured RMS if we have it, else a plausible seeded contour. */
+      loudness(track, f) {
+        if (track.rms) return track.rms[Math.min(track.rms.length - 1, Math.floor(f * track.rms.length))] / 255;
+        if (!track._contour) {
+          const rnd = Render.rng(Render.hash(track.id));
+          track._contour = Array.from({ length: 28 }, () => 0.35 + 0.65 * rnd());
+        }
+        const c = track._contour, x = f * (c.length - 1), i = Math.floor(x), u = x - i;
+        return c[i] * (1 - u) + c[Math.min(c.length - 1, i + 1)] * u;
+      },
+
+      disc() {
+        const cv = DOM.discCanvas;
+        const px = Math.max(64, Math.round(DOM.vinyl.offsetWidth * Render.dpr()));
+        if (cv.width !== px) cv.width = cv.height = px;
+        const g = cv.getContext('2d'), c = px / 2, R = px / 2;
+        const clear = DOM.app.classList.contains('theme-clear');
+        const wood = DOM.app.classList.contains('theme-wood');
+        // Translucent vinyl takes its groove colour from what is behind it: dark lines on a light page.
+        const bg = getComputedStyle(document.body).getPropertyValue('--bg').trim();
+        const ink = clear && C.HEX_RE.test(bg) && Utils.isLightColor(bg) ? '40,40,46' : '255,255,255';
+        const k = !clear ? 1 : ink === '255,255,255' ? 0.24 : 0.5;
+        const rnd = Render.rng(Render.hash(State.playlist.map(t => t.id).join('|')) ^ 0x51ed);
+        const ring = (rn, alpha, w = 1) => {
+          g.beginPath(); g.arc(c, c, rn * R, 0, Math.PI * 2);
+          g.strokeStyle = `rgba(${ink},${alpha})`; g.lineWidth = w; g.stroke();
+        };
+        g.clearRect(0, 0, px, px);
+
+        // Vinyl body
+        if (!clear) {
+          const body = g.createRadialGradient(c, c, R * 0.3, c, c, R);
+          const d = wood ? 0.8 : 1;
+          body.addColorStop(0, `rgb(${17 * d},${17 * d},${19 * d})`);
+          body.addColorStop(0.6, `rgb(${23 * d},${23 * d},${26 * d})`);
+          body.addColorStop(1, `rgb(${11 * d},${11 * d},${12 * d})`);
+          g.beginPath(); g.arc(c, c, R, 0, Math.PI * 2); g.fillStyle = body; g.fill();
+        }
+
+        // Raised outer rim: a bevel that catches a line of light
+        const rim = g.createRadialGradient(c, c, R * 0.976, c, c, R);
+        rim.addColorStop(0, 'rgba(255,255,255,0)');
+        rim.addColorStop(0.35, `rgba(255,255,255,${0.10 * k})`);
+        rim.addColorStop(0.6, `rgba(255,255,255,${0.03 * k})`);
+        rim.addColorStop(1, 'rgba(0,0,0,.55)');
+        g.beginPath(); g.arc(c, c, R * 0.988, 0, Math.PI * 2);
+        g.strokeStyle = rim; g.lineWidth = R * 0.024; g.stroke();
+
+        // Lead-in: a few widely spaced turns
+        for (let i = 0; i < 4; i++) ring(N.LEADIN - (N.LEADIN - N.OUT) * (i + 0.5) / 4, 0.07 * k);
+
+        // Music: one ring per device pixel, brighter where the music is louder
+        const step = 1 / R;
+        State.playlist.forEach((track, i) => {
+          const b = Program.bands[i];
+          if (!b) return;
+          for (let rn = b.r0; rn > b.r1; rn -= step) {
+            const loud = Render.loudness(track, (b.r0 - rn) / (b.r0 - b.r1));
+            ring(rn, (0.035 + 0.12 * loud) * (0.5 + 0.5 * rnd()) * k);
+          }
+          // Gap after the track: smooth vinyl with the single groove that crosses it
+          const next = Program.bands[i + 1];
+          if (next) {
+            const mid = (b.r1 + next.r0) / 2, w = (b.r1 - next.r0) * R;
+            g.beginPath(); g.arc(c, c, mid * R, 0, Math.PI * 2);
+            g.strokeStyle = clear ? `rgba(${ink},.05)` : 'rgba(0,0,0,.5)'; g.lineWidth = w; g.stroke();
+            ring(mid, 0.07 * k);
+            ring(b.r1, 0.13 * k); ring(next.r0, 0.13 * k);
+          }
+        });
+        if (!State.playlist.length) {
+          for (let rn = N.OUT; rn > N.IN; rn -= step) ring(rn, (0.03 + 0.05 * rnd()) * k);
+        }
+
+        // Run-out: fast spiral into the locked groove
+        for (let i = 1; i <= 3; i++) ring(N.IN - (N.IN - N.LOCKED) * i / 4, 0.06 * k);
+        ring(N.LOCKED, 0.22 * k, Math.max(1, R * 0.004));
+        ring(C.LABEL_FRAC + 0.006, 0.05 * k);
+
+        Wear.draw(g, c, R, k, ink);
+      },
+
+      /** Printed text around the label edge, from the tags. */
+      label() {
+        const cv = DOM.labelCanvas;
+        const px = Math.max(32, Math.round(cv.parentElement.offsetWidth * Render.dpr()));
+        if (cv.width !== px) cv.width = cv.height = px;
+        const g = cv.getContext('2d'), c = px / 2, R = px / 2;
+        g.clearRect(0, 0, px, px);
+
+        // pressing ring and edge
+        g.lineWidth = Math.max(1, px * 0.006);
+        g.strokeStyle = 'rgba(0,0,0,.20)'; g.beginPath(); g.arc(c, c, R * 0.52, 0, Math.PI * 2); g.stroke();
+        g.strokeStyle = 'rgba(255,255,255,.10)'; g.beginPath(); g.arc(c, c, R * 0.535, 0, Math.PI * 2); g.stroke();
+        g.strokeStyle = 'rgba(0,0,0,.28)'; g.beginPath(); g.arc(c, c, R * 0.975, 0, Math.PI * 2); g.stroke();
+
+        const first = State.playlist[0];
+        const val = el => { const v = (el.innerText || '').trim(); return v && v !== '—' ? v : ''; };
+        const artist = val(DOM.aboutArtist) || first?.artist || '';
+        const album = first?.album || '';
+        const top = [artist, album].filter(Boolean).join('  ·  ') || (first ? 'LONG PLAY' : '');
+        const speed = { 33: '33⅓ RPM', 45: '45 RPM', 78: '78 RPM' }[State.currentRPM];
+        const bottom = [val(DOM.aboutYear), val(DOM.aboutGenre), speed, 'STEREO'].filter(Boolean).join('  ·  ');
+        g.fillStyle = 'rgba(255,255,255,.80)';
+        g.shadowColor = 'rgba(0,0,0,.75)'; g.shadowBlur = px * 0.025;
+        Render.arcText(g, top.toUpperCase(), c, c, R * 0.80, -90, px * 0.066, 1);
+        g.fillStyle = 'rgba(255,255,255,.62)';
+        Render.arcText(g, bottom.toUpperCase(), c, c, R * 0.80, 90, px * 0.052, -1);
+        g.shadowBlur = 0;
+      },
+
+      /** Text along a circle, centred on midDeg. dir +1 reads clockwise (top), -1 anticlockwise (bottom). */
+      arcText(g, text, cx, cy, r, midDeg, size, dir) {
+        if (!text) return;
+        g.font = `600 ${size}px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif`;
+        g.textAlign = 'center'; g.textBaseline = 'middle';
+        const gap = size * 0.14, maxArc = 2.5 * r;
+        let chars = [...text], widths = chars.map(ch => g.measureText(ch).width + gap);
+        let total = widths.reduce((a, b) => a + b, 0);
+        while (total > maxArc && chars.length > 2) {
+          total -= widths.pop(); chars.pop();
+          chars[chars.length - 1] = '…';
+        }
+        let a = midDeg * Math.PI / 180 - dir * total / r / 2;
+        chars.forEach((ch, i) => {
+          const half = widths[i] / r / 2;
+          a += dir * half;
+          g.save();
+          g.translate(cx + r * Math.cos(a), cy + r * Math.sin(a));
+          g.rotate(a + dir * Math.PI / 2);
+          g.fillText(ch, 0, 0);
+          g.restore();
+          a += dir * half;
+        });
+      }
+    };
+
+    // ─── WEAR: record condition (defect map arrives with the imperfections phase) ──
+    const Wear = {
+      draw() {}
     };
 
     // ─── AUDIO ENGINE ────────────────────────────────────────────
@@ -1605,6 +2215,8 @@
 
       updateRPM() {
         DOM.rpmSel.value = String(State.currentRPM);
+        DOM.rpmSwitch.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.rpm === DOM.rpmSel.value));
+        if (State.labelRPM !== State.currentRPM) { State.labelRPM = State.currentRPM; Render.schedule(); }
         const cfg = Utils.rpmConfig();
         DOM.audio.playbackRate = cfg.rate;
       },
@@ -1626,6 +2238,7 @@
       },
 
       renderTracklist() {
+        Render.schedule();
         DOM.tracklistOl.innerHTML = '';
         DOM.tracklistEmpty.style.display = State.playlist.length ? 'none' : 'block';
         State.playlist.forEach((track, i) => {
@@ -1668,16 +2281,26 @@
       },
 
       getNeedleAngle() {
-        if (!State.needleOn) return C.NEEDLE_OFF;
-        const d = Utils.safeDuration();
-        if (d <= 0) return C.NEEDLE_START;
-        const pct = Utils.clamp(Utils.getCurrentTime() / d, 0, 1);
-        return C.NEEDLE_START + (C.NEEDLE_END - C.NEEDLE_START) * pct;
+        if (!State.needleOn) return Geo.thRest;
+        return Geo.angleFor(Program.radius(State.currentIdx, Utils.getCurrentTime() || 0));
       },
 
       updateNeedle() {
         if (State.armDragging) return;
-        DOM.tonearm.style.transform = `rotate(${UI.getNeedleAngle()}deg)`;
+        UI.setArm(UI.getNeedleAngle(), State.needleOn ? 0 : 0.35);
+      },
+
+      /** Rotate the arm and place its shadow. h = height above the record, 0 (in the groove) .. 1 (lifted). */
+      setArm(th, h) {
+        const key = th.toFixed(3) + '|' + h.toFixed(2);
+        if (key === State.lastArmKey) return;
+        State.lastArmKey = key;
+        const u = Geo.R / 47.8;
+        DOM.tonearm.style.transform = `rotate(${th}deg)`;
+        DOM.armShadow.style.transform = `translate(${(0.9 + 3.2 * h) * u}px, ${(1.3 + 4.6 * h) * u}px) rotate(${th}deg)`;
+        DOM.armShadow.style.filter = `blur(${(0.5 + 1.9 * h) * u}px)`;
+        DOM.armShadow.style.opacity = String(0.55 - 0.27 * h);
+        DOM.cueLever.classList.toggle('up', h > 0.5);
       },
 
       setNeedle(on) {
@@ -1691,10 +2314,12 @@
         UI.updateNeedle();
       },
 
+      /** The cursor only nudges the light direction by a few degrees (parallax), it no longer carries the highlight. */
       updateHighlight(cx, cy) {
         const r = DOM.vinylWrap.getBoundingClientRect();
-        const a = Math.atan2(cy - r.top - r.height / 2, cx - r.left - r.width / 2) * 180 / Math.PI;
-        DOM.highlight.style.background = `conic-gradient(from ${a - 20}deg, transparent 0deg, rgba(255,255,255,.1) 30deg, rgba(255,255,255,.03) 55deg, transparent 75deg, transparent 165deg, rgba(255,255,255,.06) 200deg, rgba(255,255,255,.02) 230deg, transparent 260deg)`;
+        const dx = (cx - r.left - r.width / 2) / window.innerWidth, dy = (cy - r.top - r.height / 2) / window.innerHeight;
+        const light = (Utils.clamp(dx, -0.5, 0.5) * 14 - Utils.clamp(dy, -0.5, 0.5) * 6).toFixed(1);
+        if (light !== State.light) { State.light = light; DOM.vinylWrap.style.setProperty('--light', light + 'deg'); }
       },
 
       flashEQ(labelEl) {
@@ -1706,6 +2331,7 @@
       setCoverFromDataUrl(dataUrl) {
         if (!dataUrl) return;
         State.coverDataUrl = dataUrl;
+        Render.schedule();
         DOM.coverImg.src = dataUrl;
         DOM.coverImg.style.display = 'block';
         DOM.noCover.style.display = 'none';
@@ -1719,11 +2345,8 @@
         if (level < 0.02 || !State.playing) return;
 
         const cx = size / 2, cy = size / 2;
-        const labelR = size * 0.18;
-        const style = getComputedStyle(document.documentElement);
-        const h = style.getPropertyValue('--accent-h').trim();
-        const s = style.getPropertyValue('--accent-s').trim();
-        const l = style.getPropertyValue('--accent-l').trim();
+        const labelR = size * C.LABEL_FRAC / 2 * (DOM.vinyl.offsetWidth / DOM.vinylWrap.offsetWidth);
+        const [h, s, l] = State.accentHSL;
 
         ctx.beginPath();
         ctx.arc(cx, cy, labelR + 4 + level * 8, 0, Math.PI * 2);
@@ -2009,6 +2632,7 @@
         root.setProperty('--accent-h', h);
         root.setProperty('--accent-s', s + '%');
         root.setProperty('--accent-l', l + '%');
+        State.accentHSL = [h, s + '%', l + '%'];
         DOM.accentPick.value = hex;
         DOM.accentHex.value = hex;
       },
@@ -2046,11 +2670,11 @@
       },
 
       wireColor(pick, hexInput, applyFn) {
-        pick.addEventListener('input', () => { applyFn(pick.value); Persistence.savePrefs(); });
+        pick.addEventListener('input', () => { applyFn(pick.value); Render.schedule(); Persistence.savePrefs(); });
         hexInput.addEventListener('input', () => {
           let v = hexInput.value.trim();
           if (v.length && v[0] !== '#') v = '#' + v;
-          if (C.HEX_RE.test(v)) { applyFn(v); Persistence.savePrefs(); }
+          if (C.HEX_RE.test(v)) { applyFn(v); Render.schedule(); Persistence.savePrefs(); }
         });
         hexInput.addEventListener('keydown', e => { if (e.key === 'Enter') hexInput.blur(); });
       },
@@ -2168,7 +2792,6 @@
         const p = Utils.getPointer(e);
         State.armStartPointerAngle = Events.pivotAngle(p.x, p.y);
         State.prevArmAngle = State.armStartPointerAngle;
-        DOM.tonearm.classList.remove('smooth');
         DOM.tonearm.classList.add('arm-dragging');
       },
 
@@ -2184,13 +2807,15 @@
         State.prevArmAngle = cur;
         if (State.scratchMode) AudioEngine.updateScratch(vel * 2);
         const delta = Utils.wrapDelta(cur, State.armStartPointerAngle);
-        const angle = Utils.clamp(State.armStartAngle + delta, C.NEEDLE_OFF, C.NEEDLE_END);
-        DOM.tonearm.style.transform = `rotate(${angle}deg)`;
+        const band = Program.bands[State.currentIdx] || { r0: N.OUT, r1: N.IN };
+        const aStart = Geo.angleFor(band.r0), aEnd = Geo.angleFor(band.r1);
+        const angle = Utils.clamp(State.armStartAngle + delta, Geo.thRest, aEnd);
+        UI.setArm(angle, 0.6);
         const d = Utils.safeDuration();
-        if (angle >= C.NEEDLE_START && d > 0 && Player.isReady()) {
+        if (angle >= aStart && d > 0 && Player.isReady()) {
           if (!State.needleOn) { AudioEngine.playClunk(); State.needleOn = true; DOM.tonearm.classList.remove('off'); AudioEngine.updateParams(); }
 
-          const pct = Utils.clamp((angle - C.NEEDLE_START) / (C.NEEDLE_END - C.NEEDLE_START), 0, 1);
+          const pct = Utils.clamp((angle - aStart) / (aEnd - aStart), 0, 1);
           try { DOM.audio.currentTime = pct * d; } catch {}
         } else if (State.needleOn) {
           AudioEngine.playClunk(); State.needleOn = false;
@@ -2203,14 +2828,13 @@
         if (State.scratchMode) AudioEngine.stopScratch();
         State.armDragging = false;
         DOM.tonearm.classList.remove('arm-dragging');
-        DOM.tonearm.classList.add('smooth');
         if (!State.armDidMove) {
           if (State.needleOn) UI.setNeedle(false);
           else if (Player.isReady()) { AudioEngine.ensure(); UI.setNeedle(true); Player.play(); }
           return;
         }
         const final = Utils.readArmAngle();
-        if (final >= C.NEEDLE_START && Player.isReady()) {
+        if (final >= Geo.angleFor((Program.bands[State.currentIdx] || { r0: N.OUT }).r0) && Player.isReady()) {
           if (!State.needleOn) { AudioEngine.playClunk(); State.needleOn = true; DOM.tonearm.classList.remove('off'); AudioEngine.updateParams(); }
           Player.play();
         } else {
@@ -2411,7 +3035,20 @@
           AudioEngine.ensure(); AudioEngine.playClick();
           DOM.app.classList.remove('theme-wood', 'theme-clear');
           if (DOM.themeSel.value) DOM.app.classList.add(DOM.themeSel.value);
+          Render.schedule();
           Persistence.savePrefs();
+        });
+
+        DOM.rpmSwitch.addEventListener('click', e => {
+          const b = e.target.closest('button[data-rpm]');
+          if (!b || DOM.rpmSel.value === b.dataset.rpm) return;
+          DOM.rpmSel.value = b.dataset.rpm;
+          DOM.rpmSel.dispatchEvent(new Event('change'));
+        });
+        DOM.cueLever.addEventListener('click', () => DOM.liftArmBtn.click());
+        DOM.deckToggle.addEventListener('click', () => {
+          AudioEngine.ensure(); AudioEngine.playClick();
+          DOM.deckToggle.setAttribute('aria-expanded', DOM.deckWrap.classList.toggle('open'));
         });
 
         DOM.modeBtn.addEventListener('click', () => {
@@ -2422,6 +3059,7 @@
           }
           document.body.classList.toggle('light-auto');
           DOM.modeBtn.textContent = document.body.classList.contains('light-auto') ? '🌙' : '☀';
+          Render.schedule();
           Persistence.savePrefs();
         });
 
@@ -2531,7 +3169,9 @@
     // ─── INITIALIZATION ──────────────────────────────────────────
     const init = async () => {
       initDOM();
+      Geo.update();
       Theming.loadPrefs();
+      new ResizeObserver(Render.schedule).observe(DOM.turntable);
       Theming.wireColor(DOM.accentPick, DOM.accentHex, Theming.applyAccent);
       Theming.wireColor(DOM.bgPick, DOM.bgHex, Theming.applyBg);
       Theming.wireColor(DOM.surfacePick, DOM.surfaceHex, Theming.applySurface);
