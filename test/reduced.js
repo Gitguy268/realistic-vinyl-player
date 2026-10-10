@@ -1,10 +1,11 @@
 // Usage: node reduced.js  — prefers-reduced-motion: the spin stays, wobble and vibration go
 const { chromium } = require('playwright'); const path = require('path');
-const { HTML } = require('./lib');
+const { HTML, offKeys } = require('./lib');
 (async () => {
   const b = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
   const p = await (await b.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' })).newPage();
   const errs = []; p.on('pageerror', e => errs.push(e.message)); p.on('console', m => m.type() === 'error' && errs.push(m.text()));
+  await offKeys(p);
   await p.goto('file://' + path.resolve(HTML) + '?demo&debug'); await p.waitForTimeout(800);
   await p.evaluate(() => { const e = document.getElementById('impSlider'); e.value = 1; e.dispatchEvent(new Event('input')); });
   await p.click('#playBtn'); await p.waitForTimeout(4200);

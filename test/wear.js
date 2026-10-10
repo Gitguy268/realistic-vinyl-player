@@ -1,7 +1,7 @@
 // Usage: node wear.js
 // Scratch defects: do they tick once per revolution, and is the drawn record locked to the heard angle?
 const { chromium } = require('playwright'); const path = require('path'); const fs = require('fs');
-const { HTML, WAV, OUT } = require('./lib');
+const { HTML, WAV, OUT, offKeys } = require('./lib');
 (async () => {
   const html = HTML;
   const wav = path.join(WAV, 'Silence.wav');
@@ -9,6 +9,7 @@ const { HTML, WAV, OUT } = require('./lib');
   const br = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
   const p = await br.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
   const errs = []; p.on('pageerror', e => errs.push(e.message)); p.on('console', m => m.type() === 'error' && errs.push(m.text()));
+  await offKeys(p);
   await p.goto('file://' + path.resolve(html) + '?debug');
   await p.setInputFiles('#audioIn', wav);
   await p.waitForTimeout(600);
@@ -18,8 +19,10 @@ const { HTML, WAV, OUT } = require('./lib');
   // put the stylus on the loudest scratch: seek to the time whose radius is the scratch's middle
   const info = await p.evaluate(() => {
     const { Program, Player, C, Engine } = window.__deck; const W = window.__deck.Wear;
-    const d = [...W.defects].sort((a, b) => b.amp - a.amp)[0], band = Program.bands[0];
-    const t = (band.r0 - d.m) / (band.r0 - band.r1) * band.dur;
+    const band = Program.bands[0], when = d => (band.r0 - d.m) / (band.r0 - band.r1) * band.dur;
+    // the loudest scratch that leaves room to listen for 12 s before the track ends
+    const d = [...W.defects].filter(d => when(d) < band.dur - 16).sort((a, b) => b.amp - a.amp)[0];
+    const t = when(d);
     Player.seekTo(Math.max(0, t - 4));
     // isolate that one scratch for the timing check: no random crackle or pops, no other scratches
     C.CONDITIONS.beat.pops = 0; C.CONDITIONS.beat.crackle = 0; Engine.pushCfg(true);

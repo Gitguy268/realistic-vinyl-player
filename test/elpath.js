@@ -1,12 +1,13 @@
 // Usage: node elpath.js [chromium|firefox|webkit]
 // The fallback path: a track that is not decoded plays through the <audio> element. Does its pitch still follow the platter?
 const pw = require('playwright'); const path = require('path');
-const { HTML, WAV } = require('./lib');
+const { HTML, WAV, offKeys } = require('./lib');
 (async () => {
   const [name = 'chromium'] = process.argv.slice(2), html = HTML;
   const b = await pw[name].launch(name === 'chromium' ? { args: ['--autoplay-policy=no-user-gesture-required'] } : {});
   const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
   const errs = []; p.on('pageerror', e => errs.push(e.message)); p.on('console', m => m.type() === 'error' && errs.push(m.text()));
+  await offKeys(p);
   await p.goto('file://' + path.resolve(html) + '?debug');
   await p.setInputFiles('#audioIn', path.join(WAV, 'Tone 1k.wav'));
   await p.waitForTimeout(700);

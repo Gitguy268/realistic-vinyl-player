@@ -1,7 +1,7 @@
 // Usage: node audio.js [chromium|firefox|webkit]
 // Does the audio rate track the platter? Does pitch change with speed? Do parameter changes click?
 const pw = require('playwright'); const path = require('path'); const fs = require('fs');
-const { HTML, WAV } = require('./lib');
+const { HTML, WAV, offKeys } = require('./lib');
 function pureWav(freq, seconds, sr = 48000) {
   const n = Math.floor(seconds * sr), buf = Buffer.alloc(44 + n * 2);
   buf.write('RIFF', 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write('WAVEfmt ', 8); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22);
@@ -16,6 +16,7 @@ function pureWav(freq, seconds, sr = 48000) {
   const b = await pw[name].launch(name === 'chromium' ? { args: ['--autoplay-policy=no-user-gesture-required'] } : {});
   const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
   const errs = []; p.on('pageerror', e => errs.push('pageerror: ' + e.message)); p.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') errs.push(m.type() + ': ' + m.text()); });
+  await offKeys(p);
   await p.goto('file://' + path.resolve(html) + '?debug');
   await p.setInputFiles('#audioIn', wav);
   await p.waitForTimeout(600);

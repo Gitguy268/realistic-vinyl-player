@@ -57,4 +57,25 @@ const OUT = path.join(__dirname, 'out'), WAV = path.join(OUT, 'wav');
 fs.mkdirSync(WAV, { recursive: true });
 const HTML = process.env.HTML || path.join(__dirname, '..', 'index.html');
 
-module.exports = { makeWav, wavFiles, rectsFn, VIEWPORTS, THEMES, OUT, WAV, HTML };
+// Media keys and headset buttons reach every browser that plays audio, a headless one included, so pausing music
+// elsewhere on this machine could pause the page under test. Keep the page's handlers away from the browser and
+// collect them in window.__ms, where a test can call them.
+// It also logs who calls Player.stop (with ?debug), so a run that pauses unexpectedly can say why.
+const offKeys = target => target.addInitScript(() => {
+  window.__ms = {};
+  if (navigator.mediaSession) navigator.mediaSession.setActionHandler = (k, fn) => { window.__ms[k] = fn; };
+  let deck;
+  Object.defineProperty(window, '__deck', {
+    get: () => deck,
+    set(v) {
+      deck = v;
+      const stop = v.Player.stop;
+      v.Player.stop = function () {
+        console.log(`STOP at ${(performance.now() / 1000).toFixed(1)} s, hint "${document.getElementById('hint').textContent}", from ${(new Error().stack || '').split('\n').slice(1, 5).map(l => l.trim().replace(/\S*\/index\.html|\S*snap\.html/, '')).join(' < ')}`);
+        return stop.apply(this, arguments);
+      };
+    }
+  });
+});
+
+module.exports = { makeWav, wavFiles, rectsFn, VIEWPORTS, THEMES, OUT, WAV, HTML, offKeys };

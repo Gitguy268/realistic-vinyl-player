@@ -1,13 +1,14 @@
 // Usage: node verify.js [chromium|firefox|webkit]
 // End-to-end behaviour on file://: controls, arm drag-seek, scrub/scratch, themes, shortcuts, persistence, frame times.
 const pw = require('playwright'); const path = require('path');
-const { wavFiles, HTML } = require('./lib');
+const { wavFiles, HTML, offKeys } = require('./lib');
 
 (async () => {
   const [name = 'chromium'] = process.argv.slice(2), html = HTML;
   const url = 'file://' + path.resolve(html);
   const b = await pw[name].launch(name === 'chromium' ? { args: ['--autoplay-policy=no-user-gesture-required'] } : {});
   const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
+  await offKeys(ctx);
   const p = await ctx.newPage();
   const errs = [], reqs = [], logs = [];
   p.on('pageerror', e => errs.push('pageerror: ' + e.message));
@@ -174,6 +175,7 @@ const { wavFiles, HTML } = require('./lib');
   const foreign = reqs.filter(u => !/^(file|blob|data):/.test(u));
   check('no network requests (file:, blob: and data: only)', foreign.length === 0, `${reqs.length} requests` + (foreign.length ? ', foreign: ' + foreign.join(' ') : ''));
   check('no console errors', errs.length === 0, errs.join(' | '));
+  if (fail) console.log('  --   pauses during this run:\n' + logs.filter(l => l.startsWith('STOP')).map(l => '       ' + l).join('\n'));
   console.log(`\n${name}: ${pass} passed, ${fail} failed`);
   await b.close();
   process.exitCode = fail ? 1 : 0;

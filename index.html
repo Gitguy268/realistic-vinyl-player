@@ -174,7 +174,19 @@
       box-shadow: inset 0 0 0 1px rgba(0,0,0,.5), 0 0 2px rgba(0,0,0,.6);
       visibility: hidden;                 /* under the record */
     }
-    .no-record .slipmat { visibility: visible; }
+    .no-record .slipmat, .small-record .slipmat, .flipping .slipmat { visibility: visible; }
+
+    /* Turning the record over: lifted and turned about the vertical axis; edge-on at half-way, where the other
+       side is swapped in. The individual rotate/scale properties compose with the spin set on transform. */
+    @keyframes flip {
+      0% { rotate: y 0deg; scale: 1; }
+      49.9% { rotate: y 90deg; scale: 1.07; }
+      50% { rotate: y -90deg; scale: 1.07; }
+      100% { rotate: y 0deg; scale: 1; }
+    }
+    .flipping .vinyl { animation: flip var(--flip, .5s) ease-in-out; }
+    .flipping .vinyl-shadow, .flipping .vinyl-sheen, .flipping .vinyl-highlight, .flipping .vinyl-iridescent,
+    .vinyl-wrap.flipping::before, .vinyl-wrap.flipping::after { opacity: 0; transition-duration: .06s; }
     .strobe-lamp {
       position: absolute; left: 12.2%; top: 87.8%;
       width: calc(var(--u) * 5); height: calc(var(--u) * 5);
@@ -194,11 +206,11 @@
 
     /* ── Record ────────────────────────────────── */
     .vinyl-shadow {
-      position: absolute; inset: 2.2%; border-radius: 50%; pointer-events: none;
+      position: absolute; inset: var(--rec-inset, 2.2%); border-radius: 50%; pointer-events: none;
       box-shadow: 0 calc(var(--u) * .5) calc(var(--u) * 1.3) rgba(0,0,0,.65), 0 0 1px rgba(0,0,0,.8);
     }
     .vinyl {
-      position: absolute; inset: 2.2%;
+      position: absolute; inset: var(--rec-inset, 2.2%);
       border-radius: 50%;
       will-change: transform;
     }
@@ -224,7 +236,7 @@
 
     .vinyl-label {
       position: absolute; top: 50%; left: 50%;
-      width: 36%; height: 36%;
+      width: var(--label, 36%); height: var(--label, 36%);
       transform: translate(-50%, -50%);
       border-radius: 50%;
       background: var(--accent);
@@ -250,6 +262,7 @@
       font-size: 10px; color: rgba(255,255,255,.65); text-align: center;
     }
     .label-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .adapter .no-cover { visibility: hidden; }   /* the 45 adapter sits where the text would be */
 
     .vinyl-spindle {
       position: absolute; top: 50%; left: 50%;
@@ -261,7 +274,7 @@
     }
 
     .vinyl-highlight, .vinyl-sheen, .vinyl-iridescent {
-      position: absolute; inset: 2.2%; border-radius: 50%;
+      position: absolute; inset: var(--rec-inset, 2.2%); border-radius: 50%;
       pointer-events: none; z-index: 4;
     }
     .vinyl-dust {
@@ -274,8 +287,8 @@
       background: conic-gradient(from calc(var(--light) + 253deg),
         #000 0deg, #242424 22deg, #9c9c9c 43deg, #c4c4c4 52deg, #9c9c9c 61deg, #242424 82deg, #000 104deg,
         #000 180deg, #181818 206deg, #747474 225deg, #909090 232deg, #747474 239deg, #181818 258deg, #000 284deg);
-      -webkit-mask: radial-gradient(circle closest-side, transparent 37%, #000 39%, #000 98.6%, transparent 99.8%);
-      mask: radial-gradient(circle closest-side, transparent 37%, #000 39%, #000 98.6%, transparent 99.8%);
+      -webkit-mask: radial-gradient(circle closest-side, transparent calc(var(--label, 36%) + 1%), #000 calc(var(--label, 36%) + 3%), #000 98.6%, transparent 99.8%);
+      mask: radial-gradient(circle closest-side, transparent calc(var(--label, 36%) + 1%), #000 calc(var(--label, 36%) + 3%), #000 98.6%, transparent 99.8%);
       mix-blend-mode: color-dodge;
     }
     .vinyl-glow {
@@ -469,7 +482,7 @@
     .theme-clear .slipmat { display: none; }
     .theme-clear .vinyl-shadow { box-shadow: 0 12px 40px rgba(0,0,0,0.25); }
     .theme-clear .vinyl-wrap::before {
-      content: ''; position: absolute; inset: 2.2%; border-radius: 50%; pointer-events: none; z-index: 8;
+      content: ''; position: absolute; inset: var(--rec-inset, 2.2%); border-radius: 50%; pointer-events: none; z-index: 8;
       background: linear-gradient(135deg, rgba(255,255,255,0.13) 0%, rgba(255,255,255,0.015) 40%, rgba(0,0,0,0.1) 100%);
       -webkit-mask: radial-gradient(circle closest-side, transparent 37.6%, #000 38.2%);
       mask: radial-gradient(circle closest-side, transparent 37.6%, #000 38.2%);
@@ -531,7 +544,7 @@
                   inset 0 0 30px rgba(255,255,255,0.1);
     }
     .theme-clear .vinyl-wrap::after {
-      content: ''; position: absolute; inset: 3%; border-radius: 50%;
+      content: ''; position: absolute; inset: calc(var(--rec-inset, 2.2%) + .8%); border-radius: 50%;
       background: radial-gradient(ellipse 42% 32% at 34% 26%, rgba(255,255,255,0.11) 0%, rgba(255,255,255,0.03) 50%, transparent 72%);
       pointer-events: none; z-index: 12; mix-blend-mode: overlay; opacity: 0.65;
       transition: opacity .3s ease;
@@ -735,6 +748,9 @@
     }
     .tracklist::-webkit-scrollbar { width: 4px; }
     .tracklist::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .tracklist { position: relative; }
+    /* beside the heading, out of the flow: it appears with "Record sides" and must not move anything */
+    #flipBtn { position: absolute; top: 6px; right: 14px; padding: 2px 9px; font-size: 11px; }
     .tracklist h3 {
       font-size: 11px; text-transform: uppercase;
       letter-spacing: 1.5px; color: var(--text-dim); margin-bottom: 8px;
@@ -749,6 +765,12 @@
       gap: 10px;
     }
     .tracklist li:active { transform: scale(0.98); }
+    /* first track of a record side */
+    .tracklist li.side-start:not(:first-child) { box-shadow: 0 -1px 0 var(--surface2); }
+    .trk-side {
+      order: -1; flex: none; font-size: 10px; font-weight: 700; line-height: 1;
+      padding: 3px 5px; border-radius: 4px; border: 1px solid currentColor; opacity: .6;
+    }
     .tracklist li:hover { background: var(--surface2); }
     .tracklist li.active { background: var(--accent); color: #fff; }
     .tracklist li.active .trk-dur { color: rgba(255,255,255,.7); }
@@ -1045,6 +1067,7 @@
 
     <div class="tracklist" role="list" aria-label="Tracklist">
       <h3>Tracklist</h3>
+      <button id="flipBtn" hidden aria-label="Flip the record" title="Flip the record">Side A ⇄</button>
       <ol id="tracklistOl" role="list"></ol>
       <div class="tracklist-empty" id="tracklistEmpty">No tracks — drag & drop or add files above</div>
     </div>
@@ -1152,6 +1175,8 @@
           <div class="group"><span id="impLabel">Imperfection</span><input type="range" id="impSlider" min="0" max="1" step=".01" value=".5" aria-label="Imperfection: wow, flutter and wobble amount"><span class="val" id="impVal">50%</span></div>
           <div class="group"><label><input type="checkbox" id="keepSpinChk"> Keep platter spinning when paused</label></div>
           <div class="group"><label><input type="checkbox" id="autoReturnChk" checked> Auto-return at the end</label></div>
+          <div class="group"><label><input type="checkbox" id="sidesChk"> Record sides (about 22 minutes each, flip to continue)</label></div>
+          <div class="group"><label><input type="checkbox" id="sizeChk"> Record size follows speed (7-inch at 45, 10-inch at 78)</label></div>
         </div>
       </div>
     </div>
@@ -1184,14 +1209,19 @@
     // Everything physical about the deck is set here.
     const C = Object.freeze({
       // Record, real-world millimetres (12-inch LP)
-      REC_D_MM: 302,          // record diameter
-      LEADIN_MM: 149.5,       // radius where the lead-in groove starts
-      GROOVE_OUT_MM: 146,     // radius of the first music groove
-      GROOVE_IN_MM: 60.5,     // radius of the last music groove
-      LOCKED_MM: 57,          // radius of the locked groove
+      // Records, in mm: diameter, then the radii where the lead-in starts, of the first and the last music groove
+      // and of the locked groove, then the label diameter. Only the 12-inch is used unless "Record size follows
+      // speed" is on.
+      SIZES: {
+        33: { d: 302, leadin: 149.5, out: 146, in: 60.5, locked: 57, label: 108.7 },     // 12-inch LP (label as in the original)
+        45: { d: 175, leadin: 86, out: 84, in: 54, locked: 51, label: 89, hole: 38 },     // 7-inch single, with adapter
+        78: { d: 250, leadin: 123, out: 120.5, in: 53, locked: 50, label: 76 }            // 10-inch shellac
+      },
+      REC_INSET: 2.2,         // % of the platter left free around a 12-inch record
+      SIDE_MAX_SEC: 1320,     // with "Record sides" on: a side holds about 22 minutes
+      FLIP_S: 0.5,            // time to turn the record over
       GAP_MM: 2.6,            // width of the silent band between two tracks (about double life size, to read on screen)
       GAP_MAX_SHARE: 0.15,    // gaps never take more than this share of the groove area
-      LABEL_FRAC: 0.36,       // label diameter / record diameter (as in the original)
       SPINDLE_FRAC: 0.024,    // spindle diameter / record diameter
       DEFAULT_DUR: 180,       // seconds assumed for a track whose length is not known yet
 
@@ -1326,7 +1356,7 @@
         'bassLabel','midLabel','trebleLabel','volLabel',
         'discCanvas','labelCanvas','strobe','platterCanvas','slipmat','armShadow','armRestBox','cueLever','strobeLamp',
         'motorBtn','rpmSwitch','pitchSlider','pitchLabel','condSel',
-        'deckWrap','deckToggle','deckBody','impSlider','impVal','keepSpinChk','autoReturnChk'
+        'deckWrap','deckToggle','deckBody','impSlider','impVal','keepSpinChk','autoReturnChk','sidesChk','sizeChk','flipBtn'
       ];
       ids.forEach(id => { DOM[id] = $(id); });
     }
@@ -1642,7 +1672,7 @@
             q += 4 + dv.getUint32(q);                                    // description
             q += 16;                                                     // width, height, depth, colours
             const dl = dv.getUint32(q); q += 4;
-            if (q + dl <= end && (!r.coverBlob || kind === 3)) r.coverBlob = new Blob([b.slice(q, q + dl)], { type: mime || 'image/jpeg' });
+            if (q + dl <= end && (!r.coverBlob || kind === 3)) r.coverBlob = new Blob([b.slice(q, q + dl)], { type: /^image\/(jpeg|png|gif|webp)$/.test(mime) ? mime : 'image/jpeg' });
           }
           p = end;
         }
@@ -1734,30 +1764,86 @@
 
     // ─── PROGRAM: tracks ↔ groove radius ─────────────────────────
     // The record carries the whole playlist. Radii are in record radii (1 = edge).
-    const N = Object.freeze({
-      LEADIN: C.LEADIN_MM / (C.REC_D_MM / 2),
-      DROP: (C.LEADIN_MM - 1) / (C.REC_D_MM / 2),      // where the needle lands in the lead-in
-      OUT: C.GROOVE_OUT_MM / (C.REC_D_MM / 2),
-      IN: C.GROOVE_IN_MM / (C.REC_D_MM / 2),
-      LOCKED: C.LOCKED_MM / (C.REC_D_MM / 2),
-    });
+    // Groove radii of the record that is on the platter, in record radii. Filled in by Program.setSize.
+    const N = { LEADIN: 0, DROP: 0, OUT: 0, IN: 0, LOCKED: 0, LABEL: 0, GAP: 0, HOLE: 0, SCALE: 1 };
 
     const Program = {
-      bands: [],   // per track: { r0 (outer), r1 (inner), dur }
+      bands: [],             // by playlist index: { r0 (outer), r1 (inner), dur }. Only tracks on the side that is up have one.
+      sides: [[0, -1]],      // [first, last] playlist index of each side
+      side: 0, first: 0, last: -1,
+      size: 0, flipT: 0,
+
+      /** Which record is on the platter: its groove radii and how much of the platter it covers. */
+      setSize() {
+        const key = Settings.v.sizeBySpeed && C.SIZES[State.currentRPM] ? State.currentRPM : 33;
+        if (Program.size === key) return;
+        Program.size = key;
+        const z = C.SIZES[key], R = z.d / 2;
+        Object.assign(N, {
+          LEADIN: z.leadin / R, DROP: (z.leadin - 1) / R,          // DROP: where the needle lands in the lead-in
+          OUT: z.out / R, IN: z.in / R, LOCKED: z.locked / R,
+          LABEL: z.label / z.d, HOLE: (z.hole || 0) / z.d, GAP: C.GAP_MM / R, SCALE: z.d / C.SIZES[33].d
+        });
+        // Real width, not a transform: the arm geometry and the drawing both read the record's size from layout.
+        DOM.vinylWrap.style.setProperty('--rec-inset', (50 - (50 - C.REC_INSET) * N.SCALE) + '%');
+        DOM.vinylWrap.style.setProperty('--label', N.LABEL * 100 + '%');
+        DOM.turntable.classList.toggle('small-record', N.SCALE < 1);
+        DOM.turntable.classList.toggle('adapter', N.HOLE > 0);
+      },
+
+      /** Sides as [first, last] pairs: tracks in order, a new side when the next track would not fit. */
+      pack(durs) {
+        const out = [];
+        let from = 0, sum = 0;
+        durs.forEach((d, i) => {
+          if (i > from && sum + d > C.SIDE_MAX_SEC) { out.push([from, i - 1]); from = i; sum = 0; }
+          sum += d;
+        });
+        out.push([from, durs.length - 1]);
+        return out;
+      },
+
+      sideOf: idx => Math.max(0, Program.sides.findIndex(([a, b]) => idx >= a && idx <= b)),
+      letter: (side = Program.side) => String.fromCharCode(65 + side % 26),
+      /** Identity of the side that is up: seeds how its grooves and its scratches look. */
+      ids: () => State.playlist.slice(Program.first, Program.last + 1).map(t => t.id).join('|'),
 
       build() {
-        const tracks = State.playlist, n = tracks.length;
+        Program.setSize();
+        const durs = State.playlist.map(t => t.duration > 0 ? t.duration : C.DEFAULT_DUR);
+        Program.sides = Settings.v.sides ? Program.pack(durs) : [[0, durs.length - 1]];
+        Program.side = Program.sideOf(State.currentIdx);             // the side that is up is the one with the current track
+        const [first, last] = Program.sides[Program.side], n = last - first + 1;
+        Program.first = first; Program.last = last;
         const span = N.OUT - N.IN;
-        const gap = n > 1 ? Math.min(C.GAP_MM / (C.REC_D_MM / 2), span * C.GAP_MAX_SHARE / (n - 1)) : 0;
-        const durs = tracks.map(t => t.duration > 0 ? t.duration : C.DEFAULT_DUR);
-        const total = durs.reduce((a, b) => a + b, 0) || 1;
+        const gap = n > 1 ? Math.min(N.GAP, span * C.GAP_MAX_SHARE / (n - 1)) : 0;
+        const total = durs.slice(first, last + 1).reduce((a, b) => a + b, 0) || 1;
         const usable = span - gap * (n - 1);
         let r = N.OUT;
-        Program.bands = durs.map(dur => {
-          const b = { r0: r, r1: r - usable * dur / total, dur };
-          r = b.r1 - gap;
-          return b;
-        });
+        Program.bands = [];
+        for (let i = first; i <= last; i++) {
+          Program.bands[i] = { r0: r, r1: r - usable * durs[i] / total, dur: durs[i] };
+          r = Program.bands[i].r1 - gap;
+        }
+        UI.updateFlip();
+      },
+
+      /** Turn the record over to the side that holds the current track. The new face is swapped in edge-on. */
+      flip() {
+        Program.build();
+        Wear.build();
+        Sfx.place();
+        clearTimeout(Program.flipT);
+        const w = DOM.vinylWrap, ms = Loop.calm || document.hidden ? 0 : C.FLIP_S * 1000;
+        w.classList.remove('flipping');
+        if (!ms) { Render.all(); return; }
+        void w.offsetWidth;                                            // restart the animation if one was running
+        w.style.setProperty('--flip', C.FLIP_S + 's');
+        w.classList.add('flipping');
+        Program.flipT = setTimeout(() => {
+          Render.all();
+          Program.flipT = setTimeout(() => w.classList.remove('flipping'), ms / 2);
+        }, ms / 2);
       },
 
       /** Radius of time t in track idx. */
@@ -1770,9 +1856,9 @@
       /** What lies under radius rn: off the record, lead-in, a track (with time), a gap, or the run-out. */
       locate(rn) {
         const bands = Program.bands;
-        if (rn > 1 || !bands.length) return { kind: 'off' };
-        if (rn > N.OUT) return { kind: 'leadin', idx: 0, t: 0 };
-        for (let i = 0; i < bands.length; i++) {
+        if (rn > 1 || Program.last < Program.first) return { kind: 'off' };
+        if (rn > N.OUT) return { kind: 'leadin', idx: Program.first, t: 0 };
+        for (let i = Program.first; i <= Program.last; i++) {
           const b = bands[i];
           if (rn > b.r0) return { kind: 'gap', idx: i, t: 0 };            // gap before track i → its start
           if (rn >= b.r1) return { kind: 'track', idx: i, t: (b.r0 - rn) / (b.r0 - b.r1) * b.dur };
@@ -1790,8 +1876,8 @@
       schedule() { clearTimeout(Render.timer); Render.timer = setTimeout(Render.all, 80); },
 
       all() {
+        Program.build();                // first: it sets the record's size, which the geometry reads
         Geo.update();
-        Program.build();
         Wear.build();
         Render.platter();
         Render.strobe();
@@ -1884,7 +1970,7 @@
         const bg = getComputedStyle(document.body).getPropertyValue('--bg').trim();
         const ink = clear && C.HEX_RE.test(bg) && Utils.isLightColor(bg) ? '40,40,46' : '255,255,255';
         const k = !clear ? 1 : ink === '255,255,255' ? 0.24 : 0.5;
-        const rnd = Render.rng(Render.hash(State.playlist.map(t => t.id).join('|')) ^ 0x51ed);
+        const rnd = Render.rng(Render.hash(Program.ids()) ^ 0x51ed);
         const ring = (rn, alpha, w = 1) => {
           g.beginPath(); g.arc(c, c, rn * R, 0, Math.PI * 2);
           g.strokeStyle = `rgba(${ink},${alpha})`; g.lineWidth = w; g.stroke();
@@ -1939,7 +2025,7 @@
         // Run-out: fast spiral into the locked groove
         for (let i = 1; i <= 3; i++) ring(N.IN - (N.IN - N.LOCKED) * i / 4, 0.06 * k);
         ring(N.LOCKED, 0.22 * k, Math.max(1, R * 0.004));
-        ring(C.LABEL_FRAC + 0.006, 0.05 * k);
+        ring(N.LABEL + 0.006, 0.05 * k);
 
         Wear.draw(g, c, R, k, ink);
       },
@@ -1958,13 +2044,27 @@
         g.strokeStyle = 'rgba(255,255,255,.10)'; g.beginPath(); g.arc(c, c, R * 0.535, 0, Math.PI * 2); g.stroke();
         g.strokeStyle = 'rgba(0,0,0,.28)'; g.beginPath(); g.arc(c, c, R * 0.975, 0, Math.PI * 2); g.stroke();
 
-        const first = State.playlist[0];
+        // a 45 sits on an adapter that fills its large centre hole
+        if (N.HOLE) {
+          const r = R * N.HOLE / N.LABEL;
+          g.beginPath(); g.arc(c, c, r, 0, Math.PI * 2); g.fillStyle = '#d9b62c'; g.fill();
+          g.strokeStyle = 'rgba(0,0,0,.45)'; g.stroke();
+          g.strokeStyle = 'rgba(255,255,255,.35)'; g.beginPath(); g.arc(c, c, r * 0.62, 0, Math.PI * 2); g.stroke();
+          g.strokeStyle = 'rgba(0,0,0,.3)';
+          for (let i = 0; i < 3; i++) {
+            const a = i * 2.094 + 0.5;
+            g.beginPath(); g.moveTo(c + r * 0.3 * Math.cos(a), c + r * 0.3 * Math.sin(a)); g.lineTo(c + r * 0.95 * Math.cos(a), c + r * 0.95 * Math.sin(a)); g.stroke();
+          }
+        }
+
+        const first = State.playlist[Program.first];
         const val = el => { const v = (el.innerText || '').trim(); return v && v !== '—' ? v : ''; };
         const artist = val(DOM.aboutArtist) || first?.artist || '';
         const album = first?.album || '';
         const top = [artist, album].filter(Boolean).join('  ·  ') || (first ? 'LONG PLAY' : '');
         const speed = { 33: '33⅓ RPM', 45: '45 RPM', 78: '78 RPM' }[State.currentRPM];
-        const bottom = [val(DOM.aboutYear), val(DOM.aboutGenre), speed, 'STEREO'].filter(Boolean).join('  ·  ');
+        const side = Program.sides.length > 1 ? 'SIDE ' + Program.letter() : '';
+        const bottom = [side, val(DOM.aboutYear), val(DOM.aboutGenre), speed, 'STEREO'].filter(Boolean).join('  ·  ');
         g.fillStyle = 'rgba(255,255,255,.80)';
         g.shadowColor = 'rgba(0,0,0,.75)'; g.shadowBlur = px * 0.025;
         Render.arcText(g, top.toUpperCase(), c, c, R * 0.80, -90, px * 0.066, 1);
@@ -2009,7 +2109,7 @@
 
       build() {
         const cond = C.CONDITIONS[Settings.v.condition];
-        const seed = Render.hash(State.playlist.map(t => t.id).join('|') + '#wear');
+        const seed = Render.hash(Program.ids() + '#wear');
         // Always generate the worst case and keep a prefix: a record in worse condition keeps the damage it had.
         let rnd = Render.rng(seed);
         Wear.defects = Array.from({ length: C.CONDITIONS.beat.scratches }, () => {
@@ -2023,7 +2123,7 @@
         }).slice(0, cond.scratches);
         rnd = Render.rng(seed ^ 0x9e3779b9);
         Wear.marks = Array.from({ length: 300 }, (_, i) => ({
-          scuff: i % 12 === 0, a: rnd() * Math.PI * 2, r: C.LABEL_FRAC + 0.03 + (0.96 - C.LABEL_FRAC) * rnd(),
+          scuff: i % 12 === 0, a: rnd() * Math.PI * 2, r: N.LABEL + 0.03 + (0.96 - N.LABEL) * rnd(),
           len: 0.02 + 0.16 * rnd(), tilt: (rnd() - 0.5) * 2.4, size: 0.5 + rnd() * 1.2, alpha: 0.12 + 0.4 * rnd()
         })).slice(0, Math.round(300 * cond.wear));
         Wear.send();
@@ -2798,7 +2898,7 @@
 
     // ─── SETTINGS (new deck options, stored under their own key) ──
     const Settings = {
-      v: { condition: 'good', imperfection: 0.5, pitch: 0, keepSpinning: false, autoReturn: true },
+      v: { condition: 'good', imperfection: 0.5, pitch: 0, keepSpinning: false, autoReturn: true, sides: false, sizeBySpeed: false },
 
       load() {
         try { Object.assign(Settings.v, JSON.parse(localStorage.getItem(C.DECK_KEY)) || {}); } catch {}
@@ -2811,6 +2911,8 @@
         DOM.pitchSlider.value = v.pitch;
         DOM.keepSpinChk.checked = !!v.keepSpinning;
         DOM.autoReturnChk.checked = !!v.autoReturn;
+        DOM.sidesChk.checked = v.sides = !!v.sides;
+        DOM.sizeChk.checked = v.sizeBySpeed = !!v.sizeBySpeed;
         Settings.apply();
       },
 
@@ -2942,7 +3044,7 @@
       /** Where the stylus would come down right now. */
       dropPoint() {
         const idx = State.currentIdx, t = Engine.pos();
-        if (idx === 0 && t < 0.05) return { kind: 'leadin', idx, t: 0, r: N.DROP };
+        if (idx === Program.first && t < 0.05) return { kind: 'leadin', idx, t: 0, r: N.DROP };
         return { kind: 'track', idx, t, r: Program.radius(idx, t) };
       },
 
@@ -2951,7 +3053,7 @@
         const s = Deck.seg, b = Program.bands;
         if (!s) return Deck.dropPoint().r;
         const u = s.dur ? Utils.clamp(s.acc / s.dur, 0, 1) : 0;
-        const lastIn = b.length ? b[b.length - 1].r1 : N.IN;
+        const lastIn = b[Program.last] ? b[Program.last].r1 : N.IN;
         switch (s.kind) {
           case 'leadin': return N.DROP + (N.OUT - N.DROP) * u;
           case 'gap': return b[s.from] && b[s.idx] ? b[s.from].r1 + (b[s.idx].r0 - b[s.from].r1) * u : N.OUT;
@@ -2981,12 +3083,25 @@
         Deck.contact = false; Deck.dropping = false; State.needleOn = false;
         Deck.seg = null;
         if (s?.kind === 'gap') Player.loadTrack(s.idx);                         // it was on its way into the next track
-        else if (s?.kind === 'runout' || s?.kind === 'locked') Player.loadTrack(0);   // side finished: start over
+        else if (s?.kind === 'runout' || s?.kind === 'locked') Player.loadTrack(Program.first);   // side finished: start over
         Deck.sync();
       },
 
       lift() { Deck.unseat(); Sfx.cue(); Sfx.armLift(); Arm.liftTo(); },
       park() { if (Arm.mode !== 'rest') Sfx.armLift(); Deck.unseat(); Arm.park(); },
+
+      /** Another record goes on the platter (a different size, or sides switched on or off): lift, swap, lower again
+          at the same track and time. */
+      swap() {
+        const was = Deck.contact || Deck.dropping;
+        Deck.unseat();
+        Program.size = 0;
+        Render.all();
+        UI.renderTracklist();
+        if (State.playlist.length) Sfx.place();
+        if (Arm.mode === 'rest') return;
+        if (was && State.playing) Deck.drop(); else Arm.liftTo(Deck.dropPoint().r);
+      },
 
       /** Cue lever, tonearm click, Lift/Drop button: stylus only, the motor keeps turning. */
       toggleCue() {
@@ -3255,6 +3370,14 @@
         }
       },
 
+      /** The Flip button exists only while the playlist is spread over more than one side. */
+      updateFlip() {
+        const n = Program.sides.length;
+        DOM.flipBtn.hidden = n < 2;
+        DOM.flipBtn.textContent = `Side ${Program.letter()} ⇄`;
+        DOM.flipBtn.setAttribute('aria-label', `Flip the record. Side ${Program.letter()} of ${n} is up.`);
+      },
+
       updateRPM() {
         if (!C.RPM[State.currentRPM]) State.currentRPM = 33;
         DOM.rpmSel.value = String(State.currentRPM);
@@ -3286,11 +3409,19 @@
         DOM.tracklistOl.innerHTML = '';
         DOM.tracklistEmpty.style.display = State.playlist.length ? 'none' : 'block';
         DOM.turntable.classList.toggle('no-record', !State.playlist.length);
-        State.matVisible = !State.playlist.length;
+        State.matVisible = !State.playlist.length || N.SCALE < 1;
         State.playlist.forEach((track, i) => {
           const li = document.createElement('li');
           li.setAttribute('role', 'listitem');
           if (i === State.currentIdx) li.classList.add('active');
+          const side = Program.sides.length > 1 ? Program.sides.findIndex(([a]) => a === i) : -1;
+          if (side >= 0) {                                               // first track of a side
+            li.classList.add('side-start');
+            const badge = document.createElement('span');
+            badge.className = 'trk-side'; badge.textContent = Program.letter(side);
+            badge.title = 'Side ' + Program.letter(side);
+            li.append(badge);
+          }
           const title = document.createElement('span');
           title.className = 'trk-title';
           title.textContent = track.name;
@@ -3333,7 +3464,7 @@
         const key = th.toFixed(3) + '|' + h.toFixed(2);
         if (key === State.lastArmKey) return;
         State.lastArmKey = key;
-        const u = Geo.R / 47.8;      // 1% of the platter, in px
+        const u = DOM.vinylWrap.offsetWidth / 100;      // 1% of the platter, in px
         DOM.tonearm.style.transform = `rotate(${th}deg) scale(${1 + 0.012 * h})`;
         // lifted = further from the surface: the shadow slides away from the light and softens
         DOM.armShadow.style.transform = `translate(${(0.9 + 3.2 * h) * u}px, ${(1.3 + 4.6 * h) * u}px) rotate(${th}deg)`;
@@ -3374,7 +3505,7 @@
         if (!State.ringDrawn) return;
 
         const cx = size / 2, cy = size / 2;
-        const labelR = size * C.LABEL_FRAC / 2 * (DOM.vinyl.offsetWidth / DOM.vinylWrap.offsetWidth);
+        const labelR = size * N.LABEL / 2 * (DOM.vinyl.offsetWidth / DOM.vinylWrap.offsetWidth);
         const [h, s, l] = State.accentHSL;
 
         ctx.beginPath();
@@ -3451,9 +3582,8 @@
           UI.updatePlayButton();
           return;
         }
-        const last = State.playlist.length - 1;
-        const pt = hit.kind === 'leadin' ? { kind: 'leadin', idx: 0, t: 0, r: N.DROP }
-          : hit.kind === 'runout' ? { kind: 'runout', idx: last, t: 0, r: Math.max(rn, N.LOCKED) }
+        const pt = hit.kind === 'leadin' ? { kind: 'leadin', idx: Program.first, t: 0, r: N.DROP }
+          : hit.kind === 'runout' ? { kind: 'runout', idx: Program.last, t: 0, r: Math.max(rn, N.LOCKED) }
           : { kind: 'track', idx: hit.idx, t: hit.t, r: Program.radius(hit.idx, hit.t) };   // a gap resolves to the next track's start
         if (pt.idx !== State.currentIdx) Player.loadTrack(pt.idx);
         if (pt.kind !== 'runout') Engine.seek(pt.t);
@@ -3466,8 +3596,12 @@
       loadTrack(idx) {
         if (idx < 0 || idx >= State.playlist.length) return;
 
+        const fresh = !State.trackLoaded;                              // library just restored: no record was up yet, nothing to turn over
         State.currentIdx = idx;
         State.trackLoaded = true;
+        if (Program.sideOf(idx) !== Program.side) {
+          if (fresh) { Program.build(); Render.schedule(); } else Program.flip();
+        }
         const track = State.playlist[idx];
         Engine.load(track);
         DOM.hint.textContent = track.artist ? `${track.artist} — ${track.name}` : track.name;
@@ -3663,7 +3797,7 @@
       onTrackEnd() {
         if (!Deck.contact || Deck.seg?.kind !== 'track') return;
         const cur = State.currentIdx, next = Player.getNextIdx();
-        if (next < 0) Deck.begin('runout', cur);                               // end of the record: into the run-out
+        if (next < 0 || (next === cur + 1 && next > Program.last)) Deck.begin('runout', cur);   // end of the record, or of this side
         else if (next === cur + 1) Deck.begin('gap', next, 0, cur);            // next band: ride the gap into it
         else Player.jumpTo(next, true);                                        // shuffle / repeat: lift and relocate
       },
@@ -4052,6 +4186,7 @@
           Engine.ensure(); Sfx.detent();
           State.currentRPM = parseInt(DOM.rpmSel.value);
           UI.updateRPM();
+          if (Settings.v.sizeBySpeed) Deck.swap();                       // each speed has its own record
           Persistence.savePrefs();
         });
 
@@ -4089,12 +4224,17 @@
           Settings.apply(); Settings.save();
           Engine.updateParams();
         });
-        [['keepSpinChk', 'keepSpinning'], ['autoReturnChk', 'autoReturn']].forEach(([id, key]) => {
+        [['keepSpinChk', 'keepSpinning'], ['autoReturnChk', 'autoReturn'], ['sidesChk', 'sides'], ['sizeChk', 'sizeBySpeed']].forEach(([id, key]) => {
           DOM[id].addEventListener('change', () => {
             Engine.ensure(); Sfx.click();
             Settings.v[key] = DOM[id].checked;
             Settings.save();
+            if (key === 'sides' || key === 'sizeBySpeed') Deck.swap();   // a different record goes on
           });
+        });
+        DOM.flipBtn.addEventListener('click', () => {
+          Engine.ensure(); Sfx.click();
+          Player.jumpTo(Program.sides[(Program.side + 1) % Program.sides.length][0], State.playing);
         });
 
         DOM.coverIn.addEventListener('change', e => {
@@ -4333,13 +4473,18 @@
       pass = ok(Geo.D + Geo.L > Geo.R && Math.abs(Geo.D - Geo.L) < N.LOCKED * Geo.R, 'stylus can reach the locked groove') && pass;
       State.playlist.forEach((t, i) => {
         const b = Program.bands[i];
+        if (!b) return;                                                // on another side
         for (const f of [0.01, 0.5, 0.99]) {
           const hit = Program.locate(Program.radius(i, f * b.dur));
           pass = ok(hit.kind === 'track' && hit.idx === i && Math.abs(hit.t - f * b.dur) < 1e-6, `track ${i} locate round trip at ${f}`) && pass;
         }
-        if (i > 0) pass = ok(Program.locate((Program.bands[i - 1].r1 + b.r0) / 2).idx === i, `gap before track ${i} resolves to its start`) && pass;
+        if (i > Program.first) pass = ok(Program.locate((Program.bands[i - 1].r1 + b.r0) / 2).idx === i, `gap before track ${i} resolves to its start`) && pass;
       });
       pass = ok(Program.locate(1.01).kind === 'off' && Program.locate(N.LOCKED).kind === (State.playlist.length ? 'runout' : 'off'), 'edges') && pass;
+      pass = ok(JSON.stringify(Program.pack([600, 600, 600, 100, 2000, 60])) === '[[0,1],[2,3],[4,4],[5,5]]', 'sides pack in order, up to SIDE_MAX_SEC each') && pass;
+      for (const z of Object.values(C.SIZES)) {
+        pass = ok(z.d / 2 > z.leadin && z.leadin > z.out && z.out > z.in && z.in > z.locked && z.locked > z.label / 2, 'record size table is ordered') && pass;
+      }
       // Tag parsers: one tiny synthesized file per container.
       const cat = (...parts) => Uint8Array.from(parts.flatMap(x => typeof x === 'string' ? [...x].map(ch => ch.charCodeAt(0)) : [...x]));
       const be = n => [n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255], le = n => be(n).reverse();

@@ -35,6 +35,8 @@ python3 -m http.server 8000
 - Drag the tonearm and drop it on a groove to play from there. Drop it on a gap for the next track's start, or off the record to park it.
 - Put a hand on the record to scrub. On release it slips against the mat and catches the platter in about a quarter of a second.
 - At the end of the record the stylus runs into the locked groove, thumps once per turn, then the arm returns.
+- Optional: record sides. The playlist is cut into sides of about 22 minutes, only the side that is up is on the record, and you flip it to continue.
+- Optional: record size follows speed. A 12-inch LP at 33⅓, a 7-inch single on an adapter at 45, a 10-inch shellac at 78.
 
 **Sound**
 
@@ -69,7 +71,8 @@ python3 -m http.server 8000
 | Condition | Mint, Good, Worn or Beat-up: hiss, crackle, scratches, dust and treble loss |
 | Cue lever, tonearm click | Lift or lower the stylus; the motor keeps running |
 | Record Info | Tags for the current track and editable liner notes |
-| Deck settings | Imperfection (wow, flutter, wobble), keep the platter spinning when paused, auto-return |
+| Deck settings | Imperfection (wow, flutter, wobble), keep the platter spinning when paused, auto-return, record sides, record size follows speed |
+| Side A ⇄ | Flip the record. Shown beside the tracklist heading when "Record sides" is on and the playlist needs more than one side. Choosing a track on another side flips it for you. |
 | Focus | Larger deck with a floating control bar |
 | Media keys | Play, pause, previous, next and seek from the keyboard's media keys or a headset |
 
@@ -97,15 +100,16 @@ Your library and settings from the original Vinyl-Player carry over when this pa
 
 - Tracks longer than 20 minutes, and files the browser cannot decode into memory, play through the plain media element. They still follow platter speed and pitch, but they scrub silently, cannot play backwards and do not get wow and flutter. In Safari that path cannot glide: the music starts once the platter is at speed and stops when the motor is switched off.
 - A decoded track is held as 16-bit samples: about 0.18 MB of memory per second of stereo audio, and twice that for a moment while it is being decoded. Only the current track and the next one are held.
-- Above 33⅓ rpm the sped-up audio is smoothed by a simple averaging filter. It removes most of the aliasing at 78 and costs about 1 dB of treble at 45.
+- Above 33⅓ rpm the sped-up audio is smoothed by a simple averaging filter. Measured: a 20 kHz tone played at 78 folds back 30 dB quieter than without it, and at 45 it costs 0.7 dB at 13.5 kHz.
 - Tags and cover art are read from MP3 (ID3 v1, v2.3, v2.4), FLAC and M4A/MP4 files. Other formats play, without tags. Tags are read when a file is added, so tracks saved before this was supported keep their file names.
+- The flip is drawn flat (the record turns edge-on and back), without perspective.
 - Lock-screen controls depend on the browser: while the audio engine plays a decoded track, some browsers show no media controls.
 
 ## Development
 
 There is nothing to build to run it. Two URL switches help with testing:
 
-- `?selftest` checks the arm geometry and the track-to-groove mapping and logs `selftest ok`.
+- `?selftest` checks the arm geometry, the track-to-groove mapping, the side packing and the tag parsers, and logs `selftest ok`.
 - `?debug` exposes the deck state as `window.__deck`.
 
 The checks in `test/` drive the page in Chromium, Firefox and WebKit with Playwright. Playwright is a development dependency of the tests only.
