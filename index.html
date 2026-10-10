@@ -1251,6 +1251,7 @@
       LEADIN_DENSITY: 4,      // crackle is this much denser in the lead-in
       SHELLAC_HISS: 2.6,      // hiss multiplier at 78
       PCM_MAX_SEC: 1200,      // longer tracks stay on the media element (decoded audio is ~0.35 MB per second)
+      PCM_MAX_BYTES: 50e6,    // same, by file size, for files whose length cannot be read
       RMS_SLICES: 600,        // loudness slices per track for groove shading
 
       // Record condition: wear (visual 0..1), hiss level, clicks per second, pops per second, scratch count,
@@ -2497,9 +2498,12 @@
         });
         for (const tr of keep) {
           if (tr.pcm) continue;
-          if (tr.duration > C.PCM_MAX_SEC) { tr.pcm = 'long'; continue; }
           tr.pcm = 'loading';
           try {
+            // Know the length first: a long file must never be decoded just to find out that it is long.
+            if (!(tr.duration > 0)) await tr.durP;
+            if (tr.pcm !== 'loading') continue;
+            if (tr.duration > C.PCM_MAX_SEC || (!(tr.duration > 0) && tr.blob.size > C.PCM_MAX_BYTES)) { tr.pcm = 'long'; continue; }
             const buf = await Engine.decode(await tr.blob.arrayBuffer());
             if (tr.pcm !== 'loading') continue;
             if (!wanted().includes(tr)) { tr.pcm = null; continue; }  // skipped past while decoding
@@ -2650,7 +2654,7 @@
           Engine.rateProbe = null;
         }
         const settled = tgt > 0 && Math.abs(Deck.wp - tgt) < 0.01 * tgt && Math.abs(w - tgt) < 0.02 * tgt;
-        const run = !Engine.wOn && Deck.contact && Deck.seg?.kind === 'track' && !Deck.held && w >= C.EL_MIN_RATE && !a.ended &&
+        const run = !Engine.wOn && Deck.contact && Deck.seg?.kind === 'track' && !Deck.held && w >= C.EL_MIN_RATE && !a.ended && !a.error &&
                     (!Engine.coarse || settled);
         if (!run) { if (!a.paused) a.pause(); return; }
         const r = Engine.coarse ? tgt : Utils.clamp(w, C.EL_MIN_RATE, C.EL_MAX_RATE);
@@ -3279,13 +3283,17 @@
       play() {
         if (!Player.isReady()) return;
         Engine.ensure();
+        const track = State.playlist[State.currentIdx];
+        if (DOM.audio.error && !Engine.wOn && track.pcm === 'failed') {      // neither the decoder nor the media element can read it
+          DOM.hint.textContent = `Can't play "${track.name}" (unsupported or damaged file)`;
+          return;
+        }
         State.playing = true;
         Deck.setMotor(true);
         if (!Deck.contact && !Deck.dropping) Deck.drop();
         UI.bumpTurntable();
         UI.updatePlayButton();
         UI.scrollActiveTrack();
-        const track = State.playlist[State.currentIdx];
         Utils.announce(`Now playing: ${track.name}${track.artist ? ' by ' + track.artist : ''}`);
       },
 
@@ -3392,7 +3400,7 @@
           if (meta.year && DOM.aboutYear.innerText === '—') DOM.aboutYear.innerText = meta.year;
           if (meta.genre && DOM.aboutGenre.innerText === '—') DOM.aboutGenre.innerText = meta.genre;
 
-          Player.probeDuration(url).then(d => {
+          entry.durP = Player.probeDuration(url).then(d => {
             entry.duration = d;
             UI.renderTracklist();
             if (entry === State.playlist[State.currentIdx]) UI.renderSongInfo(entry);
@@ -3444,7 +3452,7 @@
             rms: r.rms || null
           };
           State.playlist.push(entry);
-          Player.probeDuration(url).then(d => {
+          entry.durP = Player.probeDuration(url).then(d => {
             entry.duration = d;
             UI.renderTracklist();
             if (entry === State.playlist[State.currentIdx]) UI.renderSongInfo(entry);
