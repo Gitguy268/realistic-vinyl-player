@@ -1,0 +1,22 @@
+# Realistic Vinyl Player
+
+> A turntable in one HTML file. It plays the listener's own audio files in the browser and models a real deck: platter spin-up and coast-down, a pivoted tonearm that tracks across the whole record, pitch that follows platter speed, and generated surface noise. No build step, no dependencies, no network requests; it works offline and from file://.
+
+Everything is in `index.html`: inline CSS and JavaScript, organised by section comments, with all physical constants in one block at the top of the script. Audio files, cover art and settings stay in the browser (IndexedDB `vinyl-db`, localStorage keys `vinyl-prefs`, `vinyl-tracks`, `vinyl-deck`).
+
+URL switches: `?demo` loads three synthesized tracks, `?selftest` runs the built-in assertions, `?debug` exposes the deck state as `window.__deck`.
+
+## Docs
+
+- [README](https://github.com/Gitguy268/realistic-vinyl-player/blob/main/README.md): what is modelled, every control and keyboard shortcut, limits
+- [Contributing](https://github.com/Gitguy268/realistic-vinyl-player/blob/main/CONTRIBUTING.md): how to run the checks, code style
+- [Security policy](https://github.com/Gitguy268/realistic-vinyl-player/blob/main/SECURITY.md)
+
+## Source
+
+- [index.html](https://github.com/Gitguy268/realistic-vinyl-player/blob/main/index.html): the whole application
+- [Tests](https://github.com/Gitguy268/realistic-vinyl-player/tree/main/test): Playwright checks for behaviour, audio and layout
+
+## Licence
+
+- [MIT](https://github.com/Gitguy268/realistic-vinyl-player/blob/main/LICENSE)

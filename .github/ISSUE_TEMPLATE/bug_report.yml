@@ -1,0 +1,40 @@
+name: Bug report
+description: Something does not look, move or sound right
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: Safari 19.1 on iOS 19
+    validations:
+      required: true
+  - type: dropdown
+    id: opened
+    attributes:
+      label: How the page was opened
+      options:
+        - From the website
+        - From a local file (file://)
+        - From a local server
+    validations:
+      required: true
+  - type: input
+    id: audio
+    attributes:
+      label: Audio file format and length
+      description: Only if the problem is about a track. Please do not attach copyrighted audio.
+      placeholder: MP3, 4 minutes
+  - type: textarea
+    id: console
+    attributes:
+      label: Console messages
+      description: Add ?debug to the URL, reproduce the problem and paste anything the browser console shows.
+      render: text

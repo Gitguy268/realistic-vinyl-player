@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest something the player should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you want to do
+      description: The situation and what is missing, before any solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How it could work
+  - type: checkboxes
+    id: fit
+    attributes:
+      label: Fit
+      options:
+        - label: It works in one HTML file, offline, without a runtime dependency

@@ -91,7 +91,8 @@ function wav(seconds, sr, fill) {
   await p.click('#shuffleBtn');
   const order = await p.evaluate(() => window.__deck.State.shuffleQueue.slice());
   await p.evaluate(() => { const { Player, Engine } = window.__deck; Player.seekTo(Engine.dur() - 1); });
-  await p.waitForTimeout(4200); s = await st(p);
+  // when the shuffled order continues with track 1, the stylus first rides its 2 s lead-in
+  for (let i = 0; i < 35; i++) { await p.waitForTimeout(200); s = await st(p); if (s.contact && s.seg === 'track' && s.idx === order[1]) break; }
   check('shuffle: the next track is the next one in the shuffled order', s.idx === order[1] && s.contact && s.seg === 'track', `order ${order.map(i => i + 1).join(',')} → now track ${s.idx + 1}`);
   check('no console errors (hidden tab, repeat, shuffle)', p.errs.length === 0, p.errs.join(' | '));
   await p.context().close();

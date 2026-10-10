@@ -2,6 +2,8 @@
 
 A turntable in one HTML file. It plays your own audio files and tries to look, move and sound like a real deck: the platter spins up and coasts down, the tonearm tracks across the whole record, and the pitch follows the platter speed.
 
+**[Try it in your browser](https://gitguy268.github.io/realistic-vinyl-player/?demo)** (the link loads three short demo tracks).
+
 Remake of [Gitguy268/Vinyl-Player](https://github.com/Gitguy268/Vinyl-Player). Same layout, controls, themes and saved data; new materials, physics and audio engine.
 
 ![The deck in the Minimal theme](screenshots/minimal-dark.png)
@@ -15,6 +17,12 @@ Remake of [Gitguy268/Vinyl-Player](https://github.com/Gitguy268/Vinyl-Player). S
 Open `index.html` in a browser. That is all: no build step, no dependencies, no network requests. It works offline and from `file://`.
 
 Add `?demo` to the URL to load three short synthesized tracks, so you can try it without any files. Demo tracks are kept in memory and never touch your saved library.
+
+To preview it the way the website serves it, run this in the repository folder and open <http://localhost:8000/>:
+
+```
+python3 -m http.server 8000
+```
 
 ## What is realistic
 
@@ -63,6 +71,7 @@ Add `?demo` to the URL to load three short synthesized tracks, so you can try it
 | Record Info | Tags for the current track and editable liner notes |
 | Deck settings | Imperfection (wow, flutter, wobble), keep the platter spinning when paused, auto-return |
 | Focus | Larger deck with a floating control bar |
+| Media keys | Play, pause, previous, next and seek from the keyboard's media keys or a headset |
 
 Drag audio files or a cover image onto the page to add them.
 
@@ -89,11 +98,12 @@ Your library and settings from the original Vinyl-Player carry over when this pa
 - Tracks longer than 20 minutes, and files the browser cannot decode into memory, play through the plain media element. They still follow platter speed and pitch, but they scrub silently, cannot play backwards and do not get wow and flutter. In Safari that path cannot glide: the music starts once the platter is at speed and stops when the motor is switched off.
 - A decoded track is held as 16-bit samples: about 0.18 MB of memory per second of stereo audio, and twice that for a moment while it is being decoded. Only the current track and the next one are held.
 - Above 33⅓ rpm the sped-up audio is smoothed by a simple averaging filter. It removes most of the aliasing at 78 and costs about 1 dB of treble at 45.
-- ID3 tags (v1, v2.3, v2.4) are read from MP3 files. Other formats play, without tags.
+- Tags and cover art are read from MP3 (ID3 v1, v2.3, v2.4), FLAC and M4A/MP4 files. Other formats play, without tags. Tags are read when a file is added, so tracks saved before this was supported keep their file names.
+- Lock-screen controls depend on the browser: while the audio engine plays a decoded track, some browsers show no media controls.
 
 ## Development
 
-There is nothing to build. Two URL switches help with testing:
+There is nothing to build to run it. Two URL switches help with testing:
 
 - `?selftest` checks the arm geometry and the track-to-groove mapping and logs `selftest ok`.
 - `?debug` exposes the deck state as `window.__deck`.
@@ -103,9 +113,32 @@ The checks in `test/` drive the page in Chromium, Firefox and WebKit with Playwr
 ```
 cd test
 npm ci && npx playwright install
+npm run lint          # syntax, no outside resources, no debug leftovers, links
+npm run build         # assembles the published site in _site/
 npm test              # behaviour, in all three browsers
-npm run test:audio    # pitch, glide and click measurements (prints a report)
+npm run test:audio    # pitch, glide, aliasing and click measurements (prints a report)
 ORIGINAL=/path/to/Vinyl-Player/index.html npm run parity   # layout against the original
 ```
 
+Versions are pinned: Playwright in `test/package.json`, Node and the GitHub Actions in `.github/workflows/`.
+
 All tunable physical constants (record dimensions, spin-up and coast times, wow and flutter amounts, noise levels, arm timings) are in one block at the top of the script in `index.html`.
+
+## Deploy
+
+The site is static. Every push to `main` runs `.github/workflows/pages.yml`, which copies `index.html`, `llms.txt` and `sitemap.xml` into `_site/` and publishes that folder to GitHub Pages. To set it up on a fork: Settings → Pages → Source: GitHub Actions, and keep "Enforce HTTPS" on.
+
+For a custom domain, add a `CNAME` file with the domain to the published folder (copy it in the `build` script in `test/package.json`) and set the domain under Settings → Pages.
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first; it covers how to run the checks and the few rules that keep the player a single offline file. Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report security problems privately, as described in [SECURITY.md](SECURITY.md).
+
+## Licence and attributions
+
+Code: [MIT](LICENSE).
+
+- No third-party code, fonts, images, icons or audio are included. Text uses the fonts already on your device, every texture is generated in the page, and the demo tracks are synthesized.
+- Screenshots in `screenshots/` show the demo tracks only.
+- The [Code of Conduct](CODE_OF_CONDUCT.md) is the [Contributor Covenant 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/), used under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+- The layout, themes and ID3 parser come from the original [Vinyl-Player](https://github.com/Gitguy268/Vinyl-Player) by the same author.
