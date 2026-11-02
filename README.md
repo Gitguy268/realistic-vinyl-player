@@ -29,6 +29,21 @@ Remake of [Gitguy268/Vinyl-Player](https://github.com/Gitguy268/Vinyl-Player). S
 |---|---|
 | ![Wood theme](screenshots/wood.png) | ![Clear theme](screenshots/clear.png) |
 
+<!-- run-steps:start -->
+## Run it locally, step by step
+
+1. **Get the code:**
+
+   ```sh
+   git clone https://github.com/Gitguy268/realistic-vinyl-player.git
+   cd realistic-vinyl-player
+   ```
+
+2. **Open `index.html`** by double-clicking it. There is nothing to install or build.
+
+3. **Optional: try it without music** by adding `?demo` to the address. It loads three short synthesized tracks.
+<!-- run-steps:end -->
+
 ## Run it
 
 Open `index.html` in a browser. That is all: no build step, nothing to install, no network requests. It works offline and from `file://`.
