@@ -29,6 +29,10 @@ Remake of [Gitguy268/Vinyl-Player](https://github.com/Gitguy268/Vinyl-Player). S
 |---|---|
 | ![Wood theme](screenshots/wood.png) | ![Clear theme](screenshots/clear.png) |
 
+<!-- live-links -->
+**Live:** [gitguy268.github.io/realistic-vinyl-player](https://gitguy268.github.io/realistic-vinyl-player/) · [realistic-vinyl-player.vercel.app](https://realistic-vinyl-player.vercel.app)
+<!-- /live-links -->
+
 <!-- run-steps:start -->
 ## Run it locally, step by step
 
