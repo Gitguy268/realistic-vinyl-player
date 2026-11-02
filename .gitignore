@@ -18,3 +18,4 @@ shots/
 *.m4a
 *.ogg
 *.opus
+.vercel/

@@ -1,8 +1,8 @@
 # Realistic Vinyl Player
 
-> A turntable in one HTML file. It plays the listener's own audio files in the browser and models a real deck: platter spin-up and coast-down, a pivoted tonearm that tracks across the whole record, pitch that follows platter speed, and generated surface noise. No build step, no dependencies, no network requests; it works offline and from file://.
+> A turntable in one HTML file. It plays the listener's own audio files in the browser and models a real deck: platter spin-up and coast-down, a pivoted tonearm that tracks across the whole record, pitch that follows platter speed, and generated surface noise. No build step, nothing to install, no network requests; it works offline and from file://.
 
-Everything is in `index.html`: inline CSS and JavaScript, organised by section comments, with all physical constants in one block at the top of the script. Audio files, cover art and settings stay in the browser (IndexedDB `vinyl-db`, localStorage keys `vinyl-prefs`, `vinyl-tracks`, `vinyl-deck`).
+Everything is in `index.html`: inline CSS and JavaScript, organised by section comments, with all physical constants in one block at the top of the script. A MilkDrop visualizer (butterchurn 2.6.7 with its minimal preset pack, MIT) is inlined unmodified in a separate script block above the player's own; the Visualizer button shows it on the record label, or spectrum bars written after Musializer (MIT), a ridgeline, an oscilloscope, a spectrogram or a radial spectrum. Deck settings hold a Winamp-style ten-band graphic EQ with Winamp's presets (values from Webamp, MIT) and .eqf import, and a Desktop button shows the library as artist and album folders. Audio files, cover art and settings stay in the browser (IndexedDB `vinyl-db`, localStorage keys `vinyl-prefs`, `vinyl-tracks`, `vinyl-deck`, `vinyl-eq`, `vinyl-eq-presets`).
 
 URL switches: `?demo` loads three synthesized tracks, `?selftest` runs the built-in assertions, `?debug` exposes the deck state as `window.__deck`.
 

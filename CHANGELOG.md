@@ -2,6 +2,22 @@
 
 All notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Visualizer button: a visualizer on the record label while a record plays. Each press steps on: off, MilkDrop ([butterchurn](https://github.com/jberg/butterchurn), inlined in `index.html`), then spectrum bars after [Musializer](https://github.com/tsoding/musializer). It stays upright as the record turns and is remembered. Off by default and under reduced motion; without WebGL 2 only the bars are offered.
+- Four more visualizer styles on the same button, drawn from scratch after ideas in [awesome-audio-visualization](https://github.com/willianjusten/awesome-audio-visualization): Lines (a ridgeline in the Unknown Pleasures style), Oscilloscope, Spectrogram and Radial spectrum.
+- Graphic EQ in Deck settings: Winamp's ten bands with a preamp, its 17 built-in presets (values from [Webamp](https://github.com/captbaritone/webamp)) and loading of Winamp `.eqf` preset files. Off by default; a trim ahead of it keeps boosts from clipping. Stored under `vinyl-eq` and `vinyl-eq-presets`, which the other players read too when served from the same address or opened as local files in the same browser.
+- 🗂 Desktop button, after [Winampify](https://github.com/remigallego/winampify): artists and albums open as folders in movable windows; a track plays on a double-click or when dragged onto the Turntable icon.
+
+### Changed
+
+- `index.html` now embeds third-party code (butterchurn, MIT), so the "no dependencies" badge is gone. It still needs nothing installed and makes no network requests.
+
+- The copyright holder in `LICENSE` is written "Lucas Van De Weerd".
+- Added `.github/CODEOWNERS`.
+
 ## [1.0.0] - 2026-10-10
 
 First release: a remake of [Vinyl-Player](https://github.com/Gitguy268/Vinyl-Player) that keeps its layout, controls, themes and saved data.

@@ -1,7 +1,7 @@
 {
   "name": "realistic-vinyl-player-tests",
   "private": true,
-  "description": "Playwright checks for ../index.html. The app itself has no dependencies.",
+  "description": "Playwright checks for ../index.html. The app itself needs nothing installed.",
   "scripts": {
     "lint": "node lint.js",
     "build": "rm -rf ../_site && mkdir ../_site && cp -R ../index.html ../llms.txt ../sitemap.xml ../screenshots ../_site/",

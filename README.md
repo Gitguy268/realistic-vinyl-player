@@ -1,12 +1,29 @@
+<div align="center">
+
+<img src="favicon.png" alt="" width="84">
+
 # Realistic Vinyl Player
 
-A turntable in one HTML file. It plays your own audio files and tries to look, move and sound like a real deck: the platter spins up and coasts down, the tonearm tracks across the whole record, and the pitch follows the platter speed.
+**A turntable in one HTML file. It plays your own audio files and tries to look, move and sound like a real deck.**
 
-**[Try it in your browser](https://gitguy268.github.io/realistic-vinyl-player/?demo)** (the link loads three short demo tracks).
+[Run it](#run-it) · [What is realistic](#what-is-realistic) · [Controls](#controls) · [Limits](#limits)
+
+<img src="https://img.shields.io/badge/licence-MIT-blue" alt="Licence: MIT">
+<img src="https://img.shields.io/badge/one-HTML%20file-e34c26" alt="One HTML file">
+<img src="https://img.shields.io/badge/install-nothing-brightgreen" alt="Nothing to install">
+<img src="https://img.shields.io/badge/network%20requests-none-brightgreen" alt="No network requests">
+
+<img src="docs/demo.webp" alt="In focus mode, pressing play: the platter spins up, the tonearm lowers onto the lead-in groove and the progress bar starts moving" width="520">
+
+</div>
+
+The platter spins up and coasts down, the tonearm tracks across the whole record, and the pitch follows the platter speed. The "try it" link loads three short demo tracks.
 
 Remake of [Gitguy268/Vinyl-Player](https://github.com/Gitguy268/Vinyl-Player). Same layout, controls, themes and saved data; new materials, physics and audio engine.
 
-![The deck in the Minimal theme](screenshots/minimal-dark.png)
+<div align="center">
+<img src="screenshots/minimal-dark.png" alt="The whole page in the Minimal theme: deck, tracklist, transport and sound controls" width="640">
+</div>
 
 | Wood | Clear |
 |---|---|
@@ -14,7 +31,7 @@ Remake of [Gitguy268/Vinyl-Player](https://github.com/Gitguy268/Vinyl-Player). S
 
 ## Run it
 
-Open `index.html` in a browser. That is all: no build step, no dependencies, no network requests. It works offline and from `file://`.
+Open `index.html` in a browser. That is all: no build step, nothing to install, no network requests. It works offline and from `file://`.
 
 Add `?demo` to the URL to load three short synthesized tracks, so you can try it without any files. Demo tracks are kept in memory and never touch your saved library.
 
@@ -71,9 +88,12 @@ python3 -m http.server 8000
 | Condition | Mint, Good, Worn or Beat-up: hiss, crackle, scratches, dust and treble loss |
 | Cue lever, tonearm click | Lift or lower the stylus; the motor keeps running |
 | Record Info | Tags for the current track and editable liner notes |
-| Deck settings | Imperfection (wow, flutter, wobble), keep the platter spinning when paused, auto-return, record sides, record size follows speed, keep playing with the screen locked |
+| Deck settings | Imperfection (wow, flutter, wobble), keep the platter spinning when paused, auto-return, record sides, record size follows speed, keep playing with the screen locked, and the graphic EQ |
+| Graphic EQ | Winamp's ten bands and preamp after the tone controls, its 17 presets and loading of Winamp `.eqf` preset files. Off by default; a trim ahead of it takes back any boost so it does not clip. Its settings and imported presets are shared with the other players in this family when they are served from the same address, or opened as local files in the same browser. |
 | Side A ⇄ | Flip the record. Shown beside the tracklist heading when "Record sides" is on and the playlist needs more than one side. Choosing a track on another side flips it for you. |
 | Focus | Larger deck with a floating control bar |
+| ♫ Visualizer | A visualizer on the record label while a record plays, in place of the cover. Each press steps on: off, MilkDrop, spectrum bars, lines (a ridgeline), oscilloscope, spectrogram, radial spectrum. It stays upright as the record turns. |
+| 🗂 Desktop | The library as a desktop: artists and albums open as folders in movable windows. Double-click a track, or drag it onto the Turntable icon, to play it. Esc closes the front window, then the desktop. |
 | Media keys | Play, pause, previous, next and seek from the keyboard's media keys or a headset |
 
 Drag audio files or a cover image onto the page to add them.
@@ -102,6 +122,7 @@ Your library and settings from the original Vinyl-Player carry over when this pa
 - A decoded track is held as 16-bit samples: about 0.18 MB of memory per second of stereo audio, and twice that for a moment while it is being decoded. Only the current track and the next one are held.
 - Above 33⅓ rpm the sped-up audio is smoothed by a simple averaging filter. Measured: a 20 kHz tone played at 78 folds back 30 dB quieter than without it, and at 45 it costs 0.7 dB at 13.5 kHz (both measured in Chromium).
 - Tags and cover art are read from MP3 (ID3 v1, v2.3, v2.4), FLAC, M4A/MP4, Ogg Vorbis, Opus and WAV files. Other formats play, without tags. A track saved before its format was supported is read once more the next time the page opens.
+- MilkDrop needs WebGL 2; without it the Visualizer button offers the bars alone. Both stay off under `prefers-reduced-motion`. Butterchurn's code is about 60% of the file.
 - The flip is drawn flat (the record turns edge-on and back), without perspective.
 - On touch devices the sound is sent through a media element, so that a locked phone keeps playing and shows lock-screen controls. This has not been confirmed on a real phone yet. The detour adds a little output delay (not measured), which you may notice when scratching; "Keep playing with the screen locked" in Deck settings turns it off, or on for a desktop.
 
@@ -146,7 +167,12 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 Code: [MIT](LICENSE).
 
-- No third-party code, fonts, images, icons or audio are included. Text uses the fonts already on your device, every texture is generated in the page, and the demo tracks are synthesized.
+- The MilkDrop visualizer is [butterchurn](https://github.com/jberg/butterchurn) 2.6.7 with the "minimal" pack of [butterchurn-presets](https://github.com/jberg/butterchurn-presets) 2.4.7, copyright 2013-2018 Jordan Berg, embedded unmodified in `index.html` under the MIT licence. The licence text is in the file, above that code. The presets are community MilkDrop presets converted for butterchurn; each is named after its authors.
+- The bars visualizer follows [Musializer](https://github.com/tsoding/musializer) (MIT licence, copyright 2023 Alexey Kutepov and Musializer Contributors): its spectrum analysis and its bars, dots and smears, rewritten for the browser.
+- The graphic EQ uses the band layout and the 17 built-in preset values of [Webamp](https://github.com/captbaritone/webamp) (MIT licence, copyright 2015 Jordan Eldredge), and its `.eqf` reader is written from the format notes in Webamp's winamp-eqf package. No Winamp skin or artwork is used. Winamp is a trademark of its owner; this project is not affiliated with or endorsed by Winamp, Nullsoft or Webamp.
+- The library desktop follows the idea of [Winampify](https://github.com/remigallego/winampify) (MIT); no code was taken.
+- The Lines, Scope, Spectrogram and Radial visualizers are ideas found through [awesome-audio-visualization](https://github.com/willianjusten/awesome-audio-visualization) (CC0), among them its "Lines" experiment and the "Awesome Audio Player" and "CircleLineNERDDISCO" pens. They are drawn from scratch.
+- No other third-party code, and no fonts, images, icons or audio, are included. Text uses the fonts already on your device, every texture is generated in the page, and the demo tracks are synthesized.
 - Screenshots in `screenshots/` show the demo tracks only.
 - The [Code of Conduct](CODE_OF_CONDUCT.md) is the [Contributor Covenant 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/), used under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 - The layout, themes and ID3 parser come from the original [Vinyl-Player](https://github.com/Gitguy268/Vinyl-Player) by the same author.

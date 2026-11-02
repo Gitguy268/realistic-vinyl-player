@@ -168,6 +168,7 @@ function wav(seconds, sr, fill) {
   const b2 = await p.evaluate(() => { const b = window.__deck.Program.bands[1]; return (b.r0 + b.r1) / 2; });
   // a point on the headshell, 6 px up the arm from the stylus: bands on a 7-inch are only about 10 px wide, so aim exactly
   const at = rn => p.evaluate(rn => { const { Geo, Arm } = window.__deck, tt = document.getElementById('turntable').getBoundingClientRect(), th = (rn === null ? Arm.th : Geo.angleFor(rn)) * Math.PI / 180; return { x: tt.left + Geo.P.x - (Geo.L - 6) * Math.sin(th), y: tt.top + Geo.P.y + (Geo.L - 6) * Math.cos(th) }; }, rn);
+  await p.evaluate(() => scrollTo(0, 0));                         // the open Deck settings (with the EQ) scroll the deck out of view
   const from = await at(null), to = await at(b2);
   await p.mouse.move(from.x, from.y); await p.mouse.down();
   for (let i = 1; i <= 12; i++) { await p.mouse.move(from.x + (to.x - from.x) * i / 12, from.y + (to.y - from.y) * i / 12); await p.waitForTimeout(16); }
@@ -220,6 +221,93 @@ function wav(seconds, sr, fill) {
     check('…and if the phone refuses that element, the mix goes to the speakers instead', s3.bg === true && s3.routed === 'speakers' && !s3.playing, `mix to ${s3.routed}`);
     await ctx.close();
   }
+
+  // ── visualizer: each style covers the label while a record plays; off gives the label back ──
+  p = await open('?demo&debug');
+  {
+    const viz = () => p.evaluate(() => {
+      const shown = id => getComputedStyle(document.getElementById(id)).display !== 'none';
+      const c = document.getElementById('barsCanvas'), r = c.getBoundingClientRect(), v = document.getElementById('vinyl').getBoundingClientRect();
+      const d = shown('barsCanvas') ? c.getContext('2d').getImageData(0, 0, c.width, c.height).data : [];
+      const colours = new Set(); for (let i = 0; i < d.length; i += 4) colours.add(d[i] << 16 | d[i + 1] << 8 | d[i + 2]);
+      return { milkdrop: shown('vizCanvas'), flat: shown('barsCanvas'), colours: colours.size, mode: JSON.parse(localStorage.getItem('vinyl-deck') || '{}').viz,
+        off: Math.hypot(r.left + r.width / 2 - v.left - v.width / 2, r.top + r.height / 2 - v.top - v.height / 2), gl: !!document.createElement('canvas').getContext('webgl2') };
+    });
+    let v = await viz();
+    const modes = await p.evaluate(() => window.__deck.Viz.modes());
+    check('the button steps through off, MilkDrop (with WebGL 2), bars, lines, scope, spectrogram and radial',
+      modes.join() === (v.gl ? 'off,milkdrop,' : 'off,') + 'bars,lines,scope,spectrogram,radial', modes.join());
+    if (!v.gl) console.log('  --   no WebGL 2 in this browser: MilkDrop is left out of the button');
+    await p.click('#vizBtn'); v = await viz();
+    check('visualizer chosen with nothing playing: the label shows', !v.milkdrop && !v.flat && v.mode === modes[1], `mode ${v.mode}`);
+    await p.click('#playBtn'); await p.waitForTimeout(2500);
+    for (const m of modes.slice(1)) {
+      if (m !== modes[1]) { await p.click('#vizBtn'); await p.waitForTimeout(1500); }
+      v = await viz();
+      if (m === 'milkdrop') check('MilkDrop covers the label while the record plays', v.milkdrop && !v.flat);
+      else check(`${m}: covers the label, centred on it, and is drawn`, v.flat && !v.milkdrop && v.mode === m && v.off < 1 && v.colours > 1, `${v.colours} colours, ${v.off.toFixed(1)} px off centre`);
+    }
+    await p.click('#vizBtn'); await p.waitForTimeout(100); v = await viz();
+    check('next press: off, and the label is back', !v.milkdrop && !v.flat && v.mode === 'off', `mode ${v.mode}`);
+    check('no console errors (visualizer)', p.errs.length === 0, p.errs.join(' | '));
+  }
+  await p.context().close();
+
+  // ── graphic EQ: off by default, a preset sets the filters and is remembered, .eqf files load or show a notice ──
+  p = await open('?demo&debug');
+  {
+    const eq = () => p.evaluate(() => {
+      const { State, Geq } = window.__deck;
+      return { gains: State.eqBands.map(b => b.gain.value), trim: State.eqTrim ? State.eqTrim.gain.value : 1, want: Geq.trim, saved: JSON.parse(localStorage.getItem('vinyl-eq') || 'null') };
+    });
+    await p.click('#deckToggle'); await p.waitForTimeout(400);
+    await p.click('#playBtn'); await p.waitForTimeout(1500);
+    let e = await eq();
+    check('graphic EQ starts off: flat bands, unity trim', !(await p.isChecked('#geqOn')) && e.gains.length === 10 && e.gains.every(g => g === 0) && Math.abs(e.trim - 1) < 1e-6, `${e.gains.join()} / ${e.trim}`);
+    await p.selectOption('#geqPreset', { label: 'Rock' }); await p.waitForTimeout(800);
+    e = await eq();
+    check('the Rock preset switches it on, sets the filters and trims for headroom', (await p.isChecked('#geqOn')) && Math.abs(e.gains[0] - 4.6) < 0.05 && e.want < 1 && Math.abs(e.trim - e.want) < 0.01 && e.saved && e.saved.on && e.saved.preset === 'Rock',
+      `60 Hz ${e.gains[0].toFixed(2)} dB, trim ${e.trim.toFixed(3)} of ${e.want.toFixed(3)}`);
+    await p.setInputFiles('#geqFile', { name: 'bad.eqf', mimeType: 'application/octet-stream', buffer: Buffer.from('not an eqf') }); await p.waitForTimeout(400);
+    check('a bad .eqf file shows a notice', /not a Winamp EQ preset file/.test(await p.textContent('#geqStatus')));
+    const good = Buffer.concat([Buffer.from('Winamp EQ library file v1.1\x1a!--', 'latin1'), Buffer.from('Mine'.padEnd(257, '\0'), 'latin1'), Buffer.from([0, 63, 31, 31, 31, 31, 31, 31, 31, 31, 31])]);
+    await p.setInputFiles('#geqFile', { name: 'mine.eqf', mimeType: 'application/octet-stream', buffer: good }); await p.waitForTimeout(800);
+    e = await eq();
+    const kept = await p.evaluate(() => JSON.parse(localStorage.getItem('vinyl-eq-presets') || '[]').map(x => x.name).join());
+    check('an .eqf preset is loaded, listed and kept', Math.abs(e.gains[0] - 12) < 0.05 && Math.abs(e.gains[1] + 12) < 0.05 && (await p.textContent('#geqPreset')).includes('Mine') && kept === 'Mine', `${e.gains[0]} / ${e.gains[1]} / ${kept}`);
+    await p.reload(); await p.waitForTimeout(800);
+    check('the EQ is restored after a reload', (await p.isChecked('#geqOn')) && (await p.inputValue('#geq60')) === '12' && (await p.inputValue('#geqPreset')) !== '');
+    check('no console errors (graphic EQ)', p.errs.length === 0, p.errs.join(' | '));
+  }
+  await p.context().close();
+
+  // ── library desktop: folders open, a double-click or a drop on the Turntable plays, Esc closes, no file-drop overlay ──
+  p = await open('?demo&debug');
+  {
+    await p.click('#deskBtn'); await p.waitForTimeout(200);
+    check('the desktop opens with an artist folder', (await p.isVisible('#desktop')) && (await p.locator('.desk-icons .desk-folder').allTextContents()).some(t => t.includes('Synth Demo')));
+    await p.dblclick('.desk-icons .desk-folder'); await p.dblclick('.desk-window .desk-folder');
+    const files = p.locator('.desk-file');
+    check('an album window lists its tracks', (await files.count()) === 3, `${await files.count()} files`);
+    await files.nth(1).dblclick(); await p.waitForTimeout(2500);
+    let s = await st(p);
+    check('double-clicking a track plays it', s.idx === 1 && s.playing, `idx ${s.idx}, playing ${s.playing}`);
+    const drag = (sel, id, types) => p.evaluate(([sel, id, types]) => {
+      const dt = new DataTransfer(); dt.setData('application/x-vinyl-track', id === null ? String(window.__deck.State.playlist[2].id) : id);
+      for (const t of types) document.querySelector(sel).dispatchEvent(new DragEvent(t, { bubbles: true, cancelable: true, dataTransfer: dt }));
+    }, [sel, id, types]);
+    await drag('.desk-file', 'x', ['dragenter', 'dragover']);
+    check('dragging a track shows no drop overlay', !(await p.evaluate(() => document.getElementById('dropOverlay').classList.contains('active'))));
+    await drag('.desk-deck', null, ['dragover', 'drop']); await p.waitForTimeout(2500);
+    s = await st(p);
+    check('dropping a track on the Turntable icon plays it', s.idx === 2, `idx ${s.idx}`);
+    await p.keyboard.press('Space'); await p.waitForTimeout(200);
+    check('Space on the desktop leaves playback alone', (await st(p)).playing);
+    for (let i = 0; i < 3; i++) await p.keyboard.press('Escape');
+    check('Esc closes the windows, then the desktop', !(await p.isVisible('#desktop')));
+    check('no console errors (desktop)', p.errs.length === 0, p.errs.join(' | '));
+  }
+  await p.context().close();
 
   if (fail) console.log('  --   pauses during this run:\n' + stops.map(l => '       ' + l).join('\n'));
   console.log(`\n${name}: ${pass} passed, ${fail} failed`);
