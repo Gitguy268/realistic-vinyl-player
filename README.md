@@ -54,6 +54,8 @@ Open `index.html` in a browser. That is all: no build step, nothing to install, 
 
 Add `?demo` to the URL to load three short synthesized tracks, so you can try it without any files. Demo tracks are kept in memory and never touch your saved library.
 
+Add `?shelf` and the page waits for one album from [Vinyl Shelf](https://github.com/Gitguy268/vinyl-shelf), a 3D record shelf over your music folder. That album plays beside your saved library and never enters it: shelf mode does not open the database, save the queue or load the demo.
+
 To preview it the way the website serves it, run this in the repository folder and open <http://localhost:8000/>:
 
 ```
@@ -151,6 +153,7 @@ There is nothing to build to run it. Two URL switches help with testing:
 
 - `?selftest` checks the arm geometry, the track-to-groove mapping, the side packing and the tag parsers, and logs `selftest ok`.
 - `?debug` exposes the deck state as `window.__deck`.
+- `?shelf` takes one album over the [vinyl-shelf/1 protocol](https://github.com/Gitguy268/vinyl-shelf/blob/main/docs/PROTOCOL.md) (`postMessage` from the parent frame or opener).
 
 The checks in `test/` drive the page in Chromium, Firefox and WebKit with Playwright. Playwright is a development dependency of the tests only.
 

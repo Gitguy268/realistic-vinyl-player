@@ -6,6 +6,7 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ### Added
 
+- `?shelf`: plays one album handed over by [Vinyl Shelf](https://github.com/Gitguy268/vinyl-shelf) (the vinyl-shelf/1 protocol), beside the saved library and without writing to it. In browsers that keep sound off in a framed page, a "Tap to drop the needle" button appears.
 - Visualizer button: a visualizer on the record label while a record plays. Each press steps on: off, MilkDrop ([butterchurn](https://github.com/jberg/butterchurn), inlined in `index.html`), then spectrum bars after [Musializer](https://github.com/tsoding/musializer). It stays upright as the record turns and is remembered. Off by default and under reduced motion; without WebGL 2 only the bars are offered.
 - Four more visualizer styles on the same button, drawn from scratch after ideas in [awesome-audio-visualization](https://github.com/willianjusten/awesome-audio-visualization): Lines (a ridgeline in the Unknown Pleasures style), Oscilloscope, Spectrogram and Radial spectrum.
 - Graphic EQ in Deck settings: Winamp's ten bands with a preamp, its 17 built-in presets (values from [Webamp](https://github.com/captbaritone/webamp)) and loading of Winamp `.eqf` preset files. Off by default; a trim ahead of it keeps boosts from clipping. Stored under `vinyl-eq` and `vinyl-eq-presets`, which the other players read too when served from the same address or opened as local files in the same browser.

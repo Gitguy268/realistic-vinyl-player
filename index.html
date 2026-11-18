@@ -3760,7 +3760,7 @@
             shuffle: State.shuffleOn,
             repeat: State.repeatMode,
             rpm: State.currentRPM,
-            albumInfo: {
+            albumInfo: State.shelf ? (Persistence.loadPrefs().albumInfo || {}) : {
               artist: DOM.aboutArtist.innerText,
               year: DOM.aboutYear.innerText,
               genre: DOM.aboutGenre.innerText,
@@ -4111,7 +4111,7 @@
         UI.renderTracklist();
         UI.updateNavButtons();
         Persistence.saveOrder();
-        Persistence.savePrefs();
+        if (!State.shelf) Persistence.savePrefs();
         if (State.shuffleOn) Player.rebuildShuffleQueue();
         if (State.currentIdx < 0 && State.playlist.length) Player.loadTrack(firstNewIdx);
         else Engine.prepare(State.currentIdx);       // the new track may be the next one
@@ -5286,6 +5286,59 @@
       }
     };
 
+    // ─── VINYL SHELF (only with ?shelf: one album handed over by a Vinyl Shelf page) ──
+    // Protocol vinyl-shelf/1: docs/PROTOCOL.md in the Gitguy268/vinyl-shelf repository.
+    const Shelf = {
+      host: window.parent !== window ? window.parent : window.opener,
+      taken: false,
+      last: '',
+      post(msg) { try { Shelf.host.postMessage(Object.assign({ v: 1 }, msg), '*'); } catch {} },
+      state() {
+        const tr = State.playlist[State.currentIdx];
+        const msg = { type: 'vinyl-shelf:state', playing: !!State.playing, track: State.currentIdx, title: tr ? tr.name : '', position: Math.round(Engine.pos() * 10) / 10, blocked: !!document.getElementById('shelfTap'), sound: State.audioCtx ? State.audioCtx.state : 'none', duration: Math.round(Engine.dur() * 10) / 10 };
+        const key = JSON.stringify(msg);
+        if (key !== Shelf.last) { Shelf.last = key; Shelf.post(msg); }
+      },
+      async take(d) {
+        const files = d.tracks.map(t => t && t.file).filter(f => f instanceof File);
+        if (!files.length) return;
+        Shelf.taken = true;
+        await Player.addFiles(files);
+        const a = d.album && typeof d.album === 'object' ? d.album : {};
+        if (a.cover instanceof Blob) { try { UI.setCoverFromDataUrl(await Utils.blobToDataUrl(a.cover)); } catch {} }
+        const text = (el, v) => { if (typeof v === 'string' && v) el.textContent = v.slice(0, 200); else if (typeof v === 'number') el.textContent = String(v); };
+        text(DOM.aboutArtist, a.artist); text(DOM.aboutYear, a.year); text(DOM.aboutGenre, a.genre);
+        UI.renderTracklist();
+        Render.schedule();
+        Shelf.post({ type: 'vinyl-shelf:loaded', tracks: State.playlist.length });
+        if (d.autoplay !== false) {
+          Player.play();
+          setTimeout(() => { if (!State.audioCtx || State.audioCtx.state !== 'running') Shelf.prompt(); }, 1200);
+        }
+        setInterval(Shelf.state, 500);
+      },
+      /** Some browsers (Safari) keep sound off in a framed page until a click lands inside it. */
+      prompt() {
+        if (document.getElementById('shelfTap')) return;
+        const b = document.createElement('button');
+        b.id = 'shelfTap'; b.type = 'button'; b.textContent = '▶  Tap to drop the needle';
+        b.style.cssText = 'position:fixed;inset:0;z-index:2147483647;border:0;background:rgba(0,0,0,.55);color:#fff;font:600 20px system-ui,sans-serif;cursor:pointer';
+        b.onclick = () => { b.remove(); Engine.ensure(); Player.play(); };
+        document.body.append(b);
+        b.focus();
+        Shelf.post({ type: 'vinyl-shelf:blocked' });
+      },
+      listen() {
+        if (!Shelf.host) return;
+        window.addEventListener('message', e => {
+          const d = e.data;
+          if (e.source !== Shelf.host || Shelf.taken || !d || d.type !== 'vinyl-shelf:load' || d.v !== 1 || !Array.isArray(d.tracks)) return;
+          Shelf.take(d);
+        });
+        Shelf.post({ type: 'vinyl-shelf:hello', player: 'realistic-vinyl-player' });
+      }
+    };
+
     // ─── DEBUG / SELF-TEST (only with ?debug or ?selftest in the URL) ──
     const Query = new URLSearchParams(location.search);
     const Debug = Query.has('debug') ? {
@@ -5402,7 +5455,10 @@
         }
       }
 
-      if (Query.has('demo')) {
+      if (Query.has('shelf')) {
+        // A Vinyl Shelf album plays beside the saved library, never in it: the database is not opened.
+        State.demo = State.shelf = true;
+      } else if (Query.has('demo')) {
         // Demo runs beside the saved library, never in it: the database is not opened, so nothing is written.
         State.demo = true;
         await Demo.load();
@@ -5427,6 +5483,7 @@
 
       Render.all();
       Loop.start();
+      if (State.shelf) Shelf.listen();
       if (Query.has('selftest')) selfTest();
     };
 
